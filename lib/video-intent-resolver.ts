@@ -1,5 +1,5 @@
 import { ContentItem, SharedContentContext, FunnelStage } from './content-contract';
-import { FunnelStrategy, normalizeFunnelStage, parseStrictFunnelStage } from './funnel-strategy';
+import { FunnelStrategy } from './funnel-strategy';
 import { VideoProductionMode } from './production-contract';
 import { ProductionEngineContext } from './production-engine-context';
 
@@ -8,6 +8,25 @@ export interface VideoIntentDecision {
   recommendation_reason: string;
   required_inputs: string[];
   optional_inputs: string[];
+}
+
+/**
+ * Returns project-scoped and content-item-scoped manual override key.
+ * Strictly requires both non-empty projectId and contentItemId.
+ * Fails safely by returning null if either is missing or invalid.
+ * Never fabricates identity from item.no.
+ */
+export function getVideoModeOverrideKey(
+  projectId: string | null | undefined,
+  contentItemId: string | null | undefined
+): string | null {
+  if (!projectId || typeof projectId !== 'string' || !projectId.trim()) {
+    return null;
+  }
+  if (!contentItemId || typeof contentItemId !== 'string' || !contentItemId.trim()) {
+    return null;
+  }
+  return `${projectId.trim()}:${contentItemId.trim()}`;
 }
 
 export function getVideoProductionModeLabel(mode: VideoProductionMode): string {
@@ -35,13 +54,17 @@ export function getVideoProductionModeDescription(mode: VideoProductionMode): st
 /**
  * Resolves video production mode recommendation deterministically from authoritative context.
  *
+ * CANONICAL AUTHORITY:
+ * Accepts ONLY ProductionEngineContext.
+ *
  * AUTHORITY ORDER:
  * 1. ContentItem — PRIMARY AUTHORITY (editorial headline, purpose, body, angle, and visual directions)
  * 2. FunnelStrategy — SUPPORTING EVIDENCE (contextual weighting only, never hardcoding stage to mode)
  * 3. SharedContentContext — SUBJECT/BUSINESS CONTEXT ONLY (brand/product identity, NEVER dictates mode alone)
  *
  * FAIL-CLOSED:
- * If authoritative ContentItem or context is missing or invalid, throws an explicit Error.
+ * Rejects any non-canonical or permissive call outside ProductionEngineContext.
+ * Rejects missing project_id, shared_context, funnel_strategy, content_item, or canonical_funnel_stage.
  * Never performs silent fallback or hallucinates replacement business facts.
  *
  * PRIORITY & TIE-BREAKING:
@@ -52,27 +75,47 @@ export function getVideoProductionModeDescription(mode: VideoProductionMode): st
  * 5. Deterministic semantic default fallback (when no strong product_demo or motion_explainer is present) -> human_led
  */
 export function resolveVideoIntent(
-  input:
-    | ProductionEngineContext
-    | {
-        contentItem: ContentItem;
-        sharedContext?: SharedContentContext | null;
-        funnelStrategy?: FunnelStrategy | null;
-        canonical_funnel_stage?: FunnelStage;
-      }
+  input: ProductionEngineContext
 ): VideoIntentDecision {
   // 0. FAIL-CLOSED AUTHORITY VALIDATION
   if (!input || typeof input !== 'object') {
-    throw new Error('resolveVideoIntent: Authority context is required (FAIL CLOSED). Missing input.');
+    throw new Error('resolveVideoIntent: Authoritative ProductionEngineContext is required (FAIL CLOSED). Missing input.');
   }
 
-  const contentItem: ContentItem | undefined =
-    'content_item' in input ? input.content_item : input.contentItem;
-  const funnelStrategy: FunnelStrategy | undefined | null =
-    'funnel_strategy' in input ? input.funnel_strategy : input.funnelStrategy;
+  const rawInput = input as any;
 
+  // Reject permissive non-canonical structures (e.g. direct raw { contentItem: ... })
+  if ('contentItem' in rawInput || !('content_item' in rawInput)) {
+    throw new Error('resolveVideoIntent: Raw non-canonical input rejected. ProductionEngineContext is required (FAIL CLOSED).');
+  }
+
+  const projectId = rawInput.project_id;
+  if (!projectId || typeof projectId !== 'string' || !projectId.trim()) {
+    throw new Error('resolveVideoIntent: ProductionEngineContext must contain a non-empty project_id (FAIL CLOSED).');
+  }
+
+  const sharedContext = rawInput.shared_context;
+  if (!sharedContext || typeof sharedContext !== 'object') {
+    throw new Error('resolveVideoIntent: ProductionEngineContext must contain a valid shared_context (FAIL CLOSED).');
+  }
+
+  const funnelStrategy = rawInput.funnel_strategy;
+  if (!funnelStrategy || typeof funnelStrategy !== 'object') {
+    throw new Error('resolveVideoIntent: ProductionEngineContext must contain a valid funnel_strategy (FAIL CLOSED).');
+  }
+
+  const contentItem = rawInput.content_item;
   if (!contentItem || typeof contentItem !== 'object') {
-    throw new Error('resolveVideoIntent: Authoritative ContentItem is required (FAIL CLOSED). Missing contentItem.');
+    throw new Error('resolveVideoIntent: ProductionEngineContext must contain a valid content_item (FAIL CLOSED).');
+  }
+
+  const canonicalStage = rawInput.canonical_funnel_stage;
+  if (
+    !canonicalStage ||
+    typeof canonicalStage !== 'string' ||
+    !['TOFU', 'MOFU', 'BOFU'].includes(canonicalStage.trim())
+  ) {
+    throw new Error('resolveVideoIntent: ProductionEngineContext must contain a valid canonical_funnel_stage (FAIL CLOSED).');
   }
 
   // Extract ContentItem textual fields (Primary authoritative source)
@@ -207,11 +250,8 @@ export function resolveVideoIntent(
   }
 
   // 4. FUNNEL STRATEGY AS SUPPORTING EVIDENCE (Contextual weighting only)
-  // Stage resolution: canonical_funnel_stage > parseStrictFunnelStage > normalizeFunnelStage
-  const resolvedStage: FunnelStage | null =
-    ('canonical_funnel_stage' in input && input.canonical_funnel_stage)
-      ? input.canonical_funnel_stage
-      : (contentItem.jenis ? (parseStrictFunnelStage(contentItem.jenis) || normalizeFunnelStage(contentItem.jenis)) : null);
+  // Use authoritative canonical_funnel_stage directly from ProductionEngineContext
+  const resolvedStage: FunnelStage = input.canonical_funnel_stage;
 
   if (funnelStrategy && resolvedStage) {
     if (resolvedStage === 'TOFU') {

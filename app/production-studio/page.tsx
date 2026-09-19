@@ -22,7 +22,7 @@ import {
   ANTI_DRIFT_RULES 
 } from '@/lib/production-context';
 import { resolveProductionContentItemTarget, buildProductionEngineContext, ProductionEngineContext } from '@/lib/production-engine-context';
-import { resolveVideoIntent, VideoIntentDecision, getVideoProductionModeLabel } from '@/lib/video-intent-resolver';
+import { resolveVideoIntent, VideoIntentDecision, getVideoProductionModeLabel, getVideoModeOverrideKey } from '@/lib/video-intent-resolver';
 import { FunnelStrategy } from '@/lib/funnel-strategy';
 import {
   ImageProductionCandidate,
@@ -3315,17 +3315,19 @@ export default function ProductionStudioPage() {
 
   const recommendedVideoProductionMode = videoIntentDecision?.recommended_mode || null;
 
-  // Sync selected video production mode with recommendation when item changes, without wiping manual user override
+  // Sync selected video production mode with recommendation when item changes, honoring project-scoped manual user override
   useEffect(() => {
     if (!sourceItem) return;
-    const itemKey = sourceItem.content_item_id || String(sourceItem.no);
-    const userChosen = userSelectedVideoModeByItem[itemKey];
+    const overrideKey = (canonicalProjectId && sourceItem.content_item_id)
+      ? getVideoModeOverrideKey(canonicalProjectId, sourceItem.content_item_id)
+      : null;
+    const userChosen = overrideKey ? userSelectedVideoModeByItem[overrideKey] : null;
     if (userChosen) {
       setSelectedVideoProductionMode(userChosen);
     } else if (recommendedVideoProductionMode) {
       setSelectedVideoProductionMode(recommendedVideoProductionMode);
     }
-  }, [sourceItem, recommendedVideoProductionMode, userSelectedVideoModeByItem]);
+  }, [canonicalProjectId, sourceItem, recommendedVideoProductionMode, userSelectedVideoModeByItem]);
 
   // Video Mode state
   const [flowCustomCreator, setFlowCustomCreator] = useState<string>('');
@@ -3334,18 +3336,32 @@ export default function ProductionStudioPage() {
 
   const handleSelectVideoProductionMode = (mode: VideoProductionMode) => {
     setSelectedVideoProductionMode(mode);
-    if (sourceItem) {
-      const itemKey = sourceItem.content_item_id || String(sourceItem.no);
-      setUserSelectedVideoModeByItem(prev => ({
-        ...prev,
-        [itemKey]: mode
-      }));
+    if (canonicalProjectId && sourceItem?.content_item_id) {
+      const overrideKey = getVideoModeOverrideKey(canonicalProjectId, sourceItem.content_item_id);
+      if (overrideKey) {
+        setUserSelectedVideoModeByItem(prev => ({
+          ...prev,
+          [overrideKey]: mode
+        }));
+      }
     }
   };
 
   const handleUseRecommendation = () => {
     if (recommendedVideoProductionMode) {
-      handleSelectVideoProductionMode(recommendedVideoProductionMode);
+      // Preferred behavior: remove the manual override for this project + item so selection naturally follows recommendation
+      if (canonicalProjectId && sourceItem?.content_item_id) {
+        const overrideKey = getVideoModeOverrideKey(canonicalProjectId, sourceItem.content_item_id);
+        if (overrideKey) {
+          setUserSelectedVideoModeByItem(prev => {
+            if (!(overrideKey in prev)) return prev;
+            const updated = { ...prev };
+            delete updated[overrideKey];
+            return updated;
+          });
+        }
+      }
+      setSelectedVideoProductionMode(recommendedVideoProductionMode);
       showToast(`Beralih ke mode rekomendasi: ${getVideoProductionModeLabel(recommendedVideoProductionMode)}`);
     }
   };

@@ -82,6 +82,7 @@ import {
   resolveVideoIntent,
   getVideoProductionModeLabel,
   getVideoProductionModeDescription,
+  getVideoModeOverrideKey,
   VideoIntentDecision,
 } from '../lib/video-intent-resolver';
 
@@ -4711,11 +4712,12 @@ const pageStudioSrcPhase3D = fs.readFileSync(path.join(projectRoot, 'app', 'prod
 const videoPanelSrcPhase3D = fs.readFileSync(path.join(projectRoot, 'components', 'production-studio', 'VideoPanel.tsx'), 'utf8');
 
 assert(
+  pageStudioSrcPhase3D.includes('getVideoModeOverrideKey') &&
   pageStudioSrcPhase3D.includes('userSelectedVideoModeByItem') &&
   pageStudioSrcPhase3D.includes('videoIntentDecision') &&
   pageStudioSrcPhase3D.includes('recommendedVideoProductionMode') &&
   pageStudioSrcPhase3D.includes('handleUseRecommendation'),
-  'Test 3D-C1B-9a: page.tsx maintains separate states for recommendation and item-scoped user overrides'
+  'Test 3D-C1B-9a: page.tsx maintains separate states for recommendation and project-scoped user overrides'
 );
 
 assert(
@@ -4726,56 +4728,14 @@ assert(
   'Test 3D-C1B-9b: VideoPanel renders ALCO recommendation card, badge, and Use Recommendation button'
 );
 
-// 10. Test 3D-C1B-10: Item Scoped Override Isolation (No Cross-Item Leakage)
-const simulatedUserOverrides: Record<string, VideoProductionMode> = {
-  'item_tofu_fear_01': 'motion_explainer', // User manually overrode this item
-};
-const itemASelectedMode = simulatedUserOverrides['item_tofu_fear_01'] || decisionTofuFear.recommended_mode;
-const itemBSelectedMode = simulatedUserOverrides['item_mofu_demo_02'] || decisionDemo.recommended_mode;
-assert(
-  itemASelectedMode === 'motion_explainer',
-  'Test 3D-C1B-10a: Item A honors explicit user override'
-);
-assert(
-  itemBSelectedMode === 'product_demo',
-  'Test 3D-C1B-10b: Item B defaults to its own calculated recommendation without leak from Item A'
-);
+// 10. Test 3D-C1B-10: Project-Scoped Override Identity Helper
+assert(getVideoModeOverrideKey('proj_A', 'item_01') === 'proj_A:item_01', 'Test 3D-C1B-10a: getVideoModeOverrideKey formats canonical key');
+assert(getVideoModeOverrideKey(null, 'item_01') === null, 'Test 3D-C1B-10b: getVideoModeOverrideKey fails safely on null projectId');
+assert(getVideoModeOverrideKey('proj_A', null) === null, 'Test 3D-C1B-10c: getVideoModeOverrideKey fails safely on null contentItemId');
+assert(getVideoModeOverrideKey('  ', 'item_01') === null, 'Test 3D-C1B-10d: getVideoModeOverrideKey fails safely on whitespace projectId');
+assert(getVideoModeOverrideKey('proj_A', '  ') === null, 'Test 3D-C1B-10e: getVideoModeOverrideKey fails safely on whitespace contentItemId');
 
-// =============================================================
-// 11. REQUIRED TEST MATRIX SECTION 14 & FAIL-CLOSED BOUNDARIES
-// =============================================================
-
-// FAIL-CLOSED 1: Missing input throws
-let threwOnNull = false;
-try {
-  resolveVideoIntent(null as any);
-} catch (e: any) {
-  threwOnNull = true;
-}
-assert(threwOnNull, 'Test 3D-C1B-FC1: resolveVideoIntent fails closed on null input');
-
-// FAIL-CLOSED 2: Missing contentItem throws
-let threwOnMissingItem = false;
-try {
-  resolveVideoIntent({} as any);
-} catch (e: any) {
-  threwOnMissingItem = true;
-}
-assert(threwOnMissingItem, 'Test 3D-C1B-FC2: resolveVideoIntent fails closed on missing contentItem');
-
-// FAIL-CLOSED 3: Empty contentItem throws
-let threwOnEmptyItem = false;
-try {
-  resolveVideoIntent({ contentItem: {} as any });
-} catch (e: any) {
-  threwOnEmptyItem = true;
-}
-assert(threwOnEmptyItem, 'Test 3D-C1B-FC3: resolveVideoIntent fails closed on empty contentItem without text');
-
-// CASE 1:
-// Business: Software marketing
-// Content: "Kenapa pemula sering takut menjalankan iklan?"
-// Expected: human_led
+// Base Canonical Item for Regression Tests and Case 1
 const case1Item = mockContentItem({
   no: 101,
   content_item_id: 'case_1',
@@ -4787,11 +4747,181 @@ const case1Item = mockContentItem({
   cta: 'Pelajari selengkapnya',
   sudut_pandang: 'Empathy',
 });
-const decisionCase1 = resolveVideoIntent({
-  contentItem: case1Item,
-  sharedContext: baseSharedContextSaaS,
-  funnelStrategy: baseFunnelStrategySaaS,
-});
+
+// =============================================================
+// 11. REQUIRED REGRESSION TESTS: BLOCKER 1 & BLOCKER 2
+// =============================================================
+
+// TEST A: Resolver rejects raw ContentItem-only call
+let threwOnRawItemCall = false;
+try {
+  (resolveVideoIntent as any)({
+    contentItem: case1Item,
+  });
+} catch (e: any) {
+  threwOnRawItemCall = true;
+}
+assert(threwOnRawItemCall, 'TEST A: Resolver rejects raw ContentItem-only call (fail closed)');
+
+// TEST B: Missing canonical FunnelStrategy
+let threwOnMissingStrategy = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: 'TOFU',
+  });
+} catch (e: any) {
+  threwOnMissingStrategy = true;
+}
+assert(threwOnMissingStrategy, 'TEST B: resolveVideoIntent fails closed on missing canonical FunnelStrategy');
+
+// TEST C: Missing SharedContentContext
+let threwOnMissingSharedContext = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: 'TOFU',
+  });
+} catch (e: any) {
+  threwOnMissingSharedContext = true;
+}
+assert(threwOnMissingSharedContext, 'TEST C: resolveVideoIntent fails closed on missing SharedContentContext');
+
+// TEST D: Missing canonical funnel stage
+let threwOnMissingStage = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+  });
+} catch (e: any) {
+  threwOnMissingStage = true;
+}
+assert(threwOnMissingStage, 'TEST D: resolveVideoIntent fails closed on missing canonical_funnel_stage');
+
+// TEST E: Canonical context works
+const ctxE = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case1Item);
+assert(ctxE.isValid && !!ctxE.context, 'TEST E-1: buildProductionEngineContext produces valid ProductionEngineContext');
+const decisionE = resolveVideoIntent(ctxE.context!);
+assert(decisionE.recommended_mode === 'human_led', 'TEST E-2: Canonical context works and existing semantic recommendation works normally');
+
+// TEST F: Cross-project override isolation
+// Project A: project_id = project_A, content_item_id = item_01, override = motion_explainer
+// Project B: project_id = project_B, content_item_id = item_01
+const keyProjA = getVideoModeOverrideKey('project_A', 'item_01');
+const keyProjB = getVideoModeOverrideKey('project_B', 'item_01');
+assert(keyProjA === 'project_A:item_01' && keyProjB === 'project_B:item_01', 'TEST F-1: Override keys format with project namespace');
+const crossProjectOverrides: Record<string, VideoProductionMode> = {};
+if (keyProjA) crossProjectOverrides[keyProjA] = 'motion_explainer';
+const projBOverride = keyProjB ? crossProjectOverrides[keyProjB] : undefined;
+const projectBSelectedMode = projBOverride || 'product_demo'; // default recommendation for project B
+assert(
+  projectBSelectedMode === 'product_demo',
+  'TEST F-2: Cross-project override isolation — Project B DOES NOT receive motion_explainer from Project A'
+);
+
+// TEST G: Same project different item
+// project_A:item_01 override = product_demo
+// project_A:item_02 no override
+const keyProjAItem01 = getVideoModeOverrideKey('project_A', 'item_01');
+const keyProjAItem02 = getVideoModeOverrideKey('project_A', 'item_02');
+const overridesSameProject: Record<string, VideoProductionMode> = {};
+if (keyProjAItem01) overridesSameProject[keyProjAItem01] = 'product_demo';
+const item02Recommendation: VideoProductionMode = 'human_led';
+const item02Override = keyProjAItem02 ? overridesSameProject[keyProjAItem02] : undefined;
+const item02Selected = item02Override || item02Recommendation;
+assert(
+  item02Selected === 'human_led',
+  'TEST G: Same project different item — item_02 uses its own recommendation'
+);
+
+// TEST H: Same item preserved
+// project_A:item_01 manual override = product_demo
+// component/recommendation re-evaluation for same authoritative item
+const keyPreservedItem = getVideoModeOverrideKey('project_A', 'item_01');
+const overridesPreservedMap: Record<string, VideoProductionMode> = {};
+if (keyPreservedItem) overridesPreservedMap[keyPreservedItem] = 'product_demo';
+const newRecommendation: VideoProductionMode = 'human_led';
+const overrideFound = keyPreservedItem ? overridesPreservedMap[keyPreservedItem] : undefined;
+const reEvaluatedSelection = overrideFound || newRecommendation;
+assert(
+  reEvaluatedSelection === 'product_demo',
+  'TEST H: Same item manual override preserved across re-evaluation/re-render'
+);
+
+// TEST I: Use Recommendation reset
+// Project/item has manual override. User invokes handleUseRecommendation().
+// override for that exact project + content_item_id is removed and selectedVideoProductionMode becomes recommendedVideoProductionMode.
+// Other overrides remain untouched.
+const keyToReset = getVideoModeOverrideKey('project_A', 'item_01');
+const keyToKeep = getVideoModeOverrideKey('project_A', 'item_02');
+const overridesBeforeReset: Record<string, VideoProductionMode> = {};
+if (keyToReset) overridesBeforeReset[keyToReset] = 'product_demo';
+if (keyToKeep) overridesBeforeReset[keyToKeep] = 'motion_explainer';
+
+// Simulate handleUseRecommendation()
+const recommendedModeForReset: VideoProductionMode = 'human_led';
+if (keyToReset && overridesBeforeReset[keyToReset]) {
+  delete overridesBeforeReset[keyToReset];
+}
+const selectedModeAfterReset = (keyToReset && overridesBeforeReset[keyToReset]) || recommendedModeForReset;
+assert(
+  selectedModeAfterReset === 'human_led' && !(keyToReset && keyToReset in overridesBeforeReset),
+  'TEST I-1: Use Recommendation removes exact override and selected mode becomes recommendation'
+);
+assert(
+  keyToKeep && overridesBeforeReset[keyToKeep] === 'motion_explainer',
+  'TEST I-2: Other overrides remain untouched when one item is reset'
+);
+
+// FAIL-CLOSED BOUNDARIES
+let threwOnNull = false;
+try {
+  resolveVideoIntent(null as any);
+} catch (e: any) {
+  threwOnNull = true;
+}
+assert(threwOnNull, 'Test 3D-C1B-FC1: resolveVideoIntent fails closed on null input');
+
+let threwOnMissingItem = false;
+try {
+  resolveVideoIntent({} as any);
+} catch (e: any) {
+  threwOnMissingItem = true;
+}
+assert(threwOnMissingItem, 'Test 3D-C1B-FC2: resolveVideoIntent fails closed on missing contentItem');
+
+let threwOnEmptyItem = false;
+try {
+  resolveVideoIntent({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: {} as any,
+    canonical_funnel_stage: 'TOFU',
+  });
+} catch (e: any) {
+  threwOnEmptyItem = true;
+}
+assert(threwOnEmptyItem, 'Test 3D-C1B-FC3: resolveVideoIntent fails closed on empty contentItem without text');
+
+// =============================================================
+// 12. CANONICAL 10 CASES VIA PRODUCTION ENGINE CONTEXT
+// =============================================================
+
+// CASE 1:
+// Business: Software marketing
+// Content: "Kenapa pemula sering takut menjalankan iklan?"
+// Expected: human_led
+const ctxCase1 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case1Item);
+assert(ctxCase1.isValid && !!ctxCase1.context, 'Case 1 context built');
+const decisionCase1 = resolveVideoIntent(ctxCase1.context!);
 assert(
   decisionCase1.recommended_mode === 'human_led',
   'Test 3D-C1B-CASE-1: Software marketing business + fear content resolves to human_led'
@@ -4811,11 +4941,9 @@ const case2Item = mockContentItem({
   cta: 'Coba fiturnya sekarang',
   sudut_pandang: 'Demo',
 });
-const decisionCase2 = resolveVideoIntent({
-  contentItem: case2Item,
-  sharedContext: baseSharedContextSaaS,
-  funnelStrategy: baseFunnelStrategySaaS,
-});
+const ctxCase2 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case2Item);
+assert(ctxCase2.isValid && !!ctxCase2.context, 'Case 2 context built');
+const decisionCase2 = resolveVideoIntent(ctxCase2.context!);
 assert(
   decisionCase2.recommended_mode === 'product_demo',
   'Test 3D-C1B-CASE-2: Feature in action from upload to recommendation resolves to product_demo'
@@ -4835,11 +4963,9 @@ const case3Item = mockContentItem({
   cta: 'Simpan panduan ini',
   sudut_pandang: 'Framework',
 });
-const decisionCase3 = resolveVideoIntent({
-  contentItem: case3Item,
-  sharedContext: baseSharedContextSaaS,
-  funnelStrategy: baseFunnelStrategySaaS,
-});
+const ctxCase3 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case3Item);
+assert(ctxCase3.isValid && !!ctxCase3.context, 'Case 3 context built');
+const decisionCase3 = resolveVideoIntent(ctxCase3.context!);
 assert(
   decisionCase3.recommended_mode === 'motion_explainer',
   'Test 3D-C1B-CASE-3: "3 langkah menentukan angle iklan" resolves to motion_explainer'
@@ -4859,11 +4985,9 @@ const case4Item = mockContentItem({
   cta: 'Apakah kamu pernah mengalaminya?',
   sudut_pandang: 'Opini dan refleksi',
 });
-const decisionCase4 = resolveVideoIntent({
-  contentItem: case4Item,
-  sharedContext: baseSharedContextSaaS,
-  funnelStrategy: baseFunnelStrategySaaS,
-});
+const ctxCase4 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case4Item);
+assert(ctxCase4.isValid && !!ctxCase4.context, 'Case 4 context built');
+const decisionCase4 = resolveVideoIntent(ctxCase4.context!);
 assert(
   decisionCase4.recommended_mode === 'human_led',
   'Test 3D-C1B-CASE-4: Personal founder observation resolves to human_led'
@@ -4883,11 +5007,9 @@ const case5Item = mockContentItem({
   cta: 'Pilih alur yang lebih efisien',
   sudut_pandang: 'Perbandingan',
 });
-const decisionCase5 = resolveVideoIntent({
-  contentItem: case5Item,
-  sharedContext: baseSharedContextSaaS,
-  funnelStrategy: baseFunnelStrategySaaS,
-});
+const ctxCase5 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case5Item);
+assert(ctxCase5.isValid && !!ctxCase5.context, 'Case 5 context built');
+const decisionCase5 = resolveVideoIntent(ctxCase5.context!);
 assert(
   decisionCase5.recommended_mode === 'motion_explainer',
   'Test 3D-C1B-CASE-5: "Bandingkan cara manual dengan workflow terstruktur" resolves to motion_explainer'
@@ -4907,11 +5029,9 @@ const case6Item = mockContentItem({
   cta: 'Coba sekarang di akun Anda',
   sudut_pandang: 'Walkthrough UI',
 });
-const decisionCase6 = resolveVideoIntent({
-  contentItem: case6Item,
-  sharedContext: baseSharedContextSaaS,
-  funnelStrategy: baseFunnelStrategySaaS,
-});
+const ctxCase6 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case6Item);
+assert(ctxCase6.isValid && !!ctxCase6.context, 'Case 6 context built');
+const decisionCase6 = resolveVideoIntent(ctxCase6.context!);
 assert(
   decisionCase6.recommended_mode === 'product_demo',
   'Test 3D-C1B-CASE-6: Explicit UI navigation (buka dashboard, klik Analisis) resolves to product_demo'
@@ -4941,11 +5061,9 @@ const case7Item = mockContentItem({
   cta: 'Simak ulasannya',
   sudut_pandang: 'Relatable problem',
 });
-const decisionCase7 = resolveVideoIntent({
-  contentItem: case7Item,
-  sharedContext: genericAppSharedContext,
-  funnelStrategy: baseFunnelStrategySaaS,
-});
+const ctxCase7 = buildProductionEngineContext('proj_saas_123', genericAppSharedContext, baseFunnelStrategySaaS, case7Item);
+assert(ctxCase7.isValid && !!ctxCase7.context, 'Case 7 context built');
+const decisionCase7 = resolveVideoIntent(ctxCase7.context!);
 assert(
   decisionCase7.recommended_mode === 'human_led',
   'Test 3D-C1B-CASE-7: SharedContext generic software words do NOT cause product_demo; resolves to human_led'
@@ -4965,11 +5083,9 @@ const case8Item = mockContentItem({
   cta: 'Hindari 5 kesalahan ini',
   sudut_pandang: 'Listicle',
 });
-const decisionCase8 = resolveVideoIntent({
-  contentItem: case8Item,
-  sharedContext: baseSharedContextSaaS,
-  funnelStrategy: baseFunnelStrategySaaS,
-});
+const ctxCase8 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case8Item);
+assert(ctxCase8.isValid && !!ctxCase8.context, 'Case 8 context built');
+const decisionCase8 = resolveVideoIntent(ctxCase8.context!);
 assert(
   decisionCase8.recommended_mode === 'motion_explainer',
   'Test 3D-C1B-CASE-8: "5 kesalahan saat menyusun funnel" resolves to motion_explainer'
@@ -4989,11 +5105,9 @@ const case9Item = mockContentItem({
   cta: 'Kunjungi situs kami',
   sudut_pandang: 'Overview singkat',
 });
-const decisionCase9 = resolveVideoIntent({
-  contentItem: case9Item,
-  sharedContext: baseSharedContextSaaS,
-  funnelStrategy: baseFunnelStrategySaaS,
-});
+const ctxCase9 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case9Item);
+assert(ctxCase9.isValid && !!ctxCase9.context, 'Case 9 context built');
+const decisionCase9 = resolveVideoIntent(ctxCase9.context!);
 assert(
   decisionCase9.recommended_mode === 'human_led',
   'Test 3D-C1B-CASE-9: "Berikut dashboard produk kami." without explicit demonstration resolves to semantic default human_led'
@@ -5013,11 +5127,9 @@ const case10Item = mockContentItem({
   cta: 'Terapkan di akun Anda',
   sudut_pandang: 'Screen walkthrough',
 });
-const decisionCase10 = resolveVideoIntent({
-  contentItem: case10Item,
-  sharedContext: baseSharedContextSaaS,
-  funnelStrategy: baseFunnelStrategySaaS,
-});
+const ctxCase10 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case10Item);
+assert(ctxCase10.isValid && !!ctxCase10.context, 'Case 10 context built');
+const decisionCase10 = resolveVideoIntent(ctxCase10.context!);
 assert(
   decisionCase10.recommended_mode === 'product_demo',
   'Test 3D-C1B-CASE-10: Combined framework + explicit UI action opening app resolves to product_demo (execution precedence)'
