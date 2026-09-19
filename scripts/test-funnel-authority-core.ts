@@ -4439,8 +4439,22 @@ const baseSharedContextSaaS: SharedContentContext = {
 
 const baseFunnelStrategySaaS: FunnelStrategy = buildFunnelStrategyFromContext(baseSharedContextSaaS);
 
+function mockContentItem(item: Partial<ContentItem> & { no: number; headline: string; tujuan: string; jenis: string }): ContentItem {
+  return {
+    tanggal: '2026-09-19',
+    hookType: 'question',
+    body: 'Sample body text for test',
+    caption: 'Sample caption for test',
+    format: 'Reels',
+    referensi: '',
+    visual: '',
+    keterangan: '',
+    ...item,
+  };
+}
+
 // 1. Test 3D-C1B-1: Business Context is Software, but ContentItem is TOFU Relatable Problem / Fear
-const itemTofuFear: ContentItem = {
+const itemTofuFear = mockContentItem({
   no: 1,
   content_item_id: 'item_tofu_fear_01',
   project_id: 'proj_saas_123',
@@ -4451,7 +4465,7 @@ const itemTofuFear: ContentItem = {
   tujuan: 'Mengatasi ketakutan psikologis dan membangun empati audiens',
   cta: 'Simpan postingan ini jika kamu merasakannya',
   sudut_pandang: 'Storytelling personal dari founder',
-};
+});
 const ctxTofuFearRes = buildProductionEngineContext(
   'proj_saas_123',
   baseSharedContextSaaS,
@@ -4474,7 +4488,7 @@ assert(
 );
 
 // 2. Test 3D-C1B-2: ContentItem with Explicit Dashboard / Workflow Demonstration
-const itemDashboardWalkthrough: ContentItem = {
+const itemDashboardWalkthrough = mockContentItem({
   no: 2,
   content_item_id: 'item_mofu_demo_02',
   project_id: 'proj_saas_123',
@@ -4485,7 +4499,7 @@ const itemDashboardWalkthrough: ContentItem = {
   tujuan: 'Menunjukkan langkah setup campaign langsung di layar UI',
   cta: 'Simpan panduan ini untuk setup nanti',
   sudut_pandang: 'Screen recording walkthrough',
-};
+});
 const ctxDemoRes = buildProductionEngineContext(
   'proj_saas_123',
   baseSharedContextSaaS,
@@ -4504,7 +4518,7 @@ assert(
 );
 
 // 3. Test 3D-C1B-3: ContentItem Framework / Step-by-Step Educational Process
-const itemStepFramework: ContentItem = {
+const itemStepFramework = mockContentItem({
   no: 3,
   content_item_id: 'item_mofu_steps_03',
   project_id: 'proj_saas_123',
@@ -4515,7 +4529,7 @@ const itemStepFramework: ContentItem = {
   tujuan: 'Edukasi framework visual 5 tahap strategi funnel',
   cta: 'Pelajari selengkapnya di modul gratis',
   sudut_pandang: 'Penjelasan infografis visual',
-};
+});
 const ctxStepsRes = buildProductionEngineContext(
   'proj_saas_123',
   baseSharedContextSaaS,
@@ -4534,7 +4548,7 @@ assert(
 );
 
 // 4. Test 3D-C1B-4: Generic Business Keywords Do NOT Trigger Product Demo on "3 Kesalahan"
-const itemMistakes: ContentItem = {
+const itemMistakes = mockContentItem({
   no: 4,
   content_item_id: 'item_tofu_mistakes_04',
   project_id: 'proj_saas_123',
@@ -4545,7 +4559,7 @@ const itemMistakes: ContentItem = {
   tujuan: 'Edukasi kesalahan umum dan cara memperbaikinya',
   cta: 'Hindari 3 kesalahan ini mulai sekarang',
   sudut_pandang: 'List edukatif',
-};
+});
 const ctxMistakesRes = buildProductionEngineContext(
   'proj_saas_123',
   baseSharedContextSaaS,
@@ -4564,7 +4578,7 @@ assert(
 );
 
 // 5. Test 3D-C1B-5: BOFU Stage with Explicit Feature Demonstration
-const itemBofuFeature: ContentItem = {
+const itemBofuFeature = mockContentItem({
   no: 5,
   content_item_id: 'item_bofu_feature_05',
   project_id: 'proj_saas_123',
@@ -4575,7 +4589,7 @@ const itemBofuFeature: ContentItem = {
   tujuan: 'Membuktikan akurasi reporting langsung dari aplikasi',
   cta: 'Mulai trial Anda sekarang',
   sudut_pandang: 'Demo live feature',
-};
+});
 const ctxBofuFeatureRes = buildProductionEngineContext(
   'proj_saas_123',
   baseSharedContextSaaS,
@@ -4590,7 +4604,7 @@ assert(
 );
 
 // 6. Test 3D-C1B-6: BOFU Stage with Objection Handling / Talent Inquiry
-const itemBofuObjection: ContentItem = {
+const itemBofuObjection = mockContentItem({
   no: 6,
   content_item_id: 'item_bofu_objection_06',
   project_id: 'proj_saas_123',
@@ -4601,7 +4615,7 @@ const itemBofuObjection: ContentItem = {
   tujuan: 'Menjawab keraguan audiens langsung di depan kamera untuk membangun kepercayaan',
   cta: 'Tanya saya di kolom komentar',
   sudut_pandang: 'Klarifikasi jujur langsung dari founder',
-};
+});
 const ctxBofuObjectionRes = buildProductionEngineContext(
   'proj_saas_123',
   baseSharedContextSaaS,
@@ -4672,7 +4686,7 @@ const ctxFitnessRes = buildProductionEngineContext(
   'proj_fitness_999',
   secondSharedContext,
   secondFunnelStrategy,
-  {
+  mockContentItem({
     no: 1,
     content_item_id: 'fit_01',
     project_id: 'proj_fitness_999',
@@ -4683,7 +4697,7 @@ const ctxFitnessRes = buildProductionEngineContext(
     tujuan: 'Edukasi form gerakan oleh instruktur',
     cta: 'Coba form ini besok',
     sudut_pandang: 'Instruktur mendemonstrasikan gerakan fisik',
-  }
+  })
 );
 assert(ctxFitnessRes.isValid && !!ctxFitnessRes.context, 'Test 3D-C1B-8a0: ProductionEngineContext built for Fitness item');
 const decisionFitness = resolveVideoIntent(ctxFitnessRes.context!);
@@ -4725,6 +4739,288 @@ assert(
 assert(
   itemBSelectedMode === 'product_demo',
   'Test 3D-C1B-10b: Item B defaults to its own calculated recommendation without leak from Item A'
+);
+
+// =============================================================
+// 11. REQUIRED TEST MATRIX SECTION 14 & FAIL-CLOSED BOUNDARIES
+// =============================================================
+
+// FAIL-CLOSED 1: Missing input throws
+let threwOnNull = false;
+try {
+  resolveVideoIntent(null as any);
+} catch (e: any) {
+  threwOnNull = true;
+}
+assert(threwOnNull, 'Test 3D-C1B-FC1: resolveVideoIntent fails closed on null input');
+
+// FAIL-CLOSED 2: Missing contentItem throws
+let threwOnMissingItem = false;
+try {
+  resolveVideoIntent({} as any);
+} catch (e: any) {
+  threwOnMissingItem = true;
+}
+assert(threwOnMissingItem, 'Test 3D-C1B-FC2: resolveVideoIntent fails closed on missing contentItem');
+
+// FAIL-CLOSED 3: Empty contentItem throws
+let threwOnEmptyItem = false;
+try {
+  resolveVideoIntent({ contentItem: {} as any });
+} catch (e: any) {
+  threwOnEmptyItem = true;
+}
+assert(threwOnEmptyItem, 'Test 3D-C1B-FC3: resolveVideoIntent fails closed on empty contentItem without text');
+
+// CASE 1:
+// Business: Software marketing
+// Content: "Kenapa pemula sering takut menjalankan iklan?"
+// Expected: human_led
+const case1Item = mockContentItem({
+  no: 101,
+  content_item_id: 'case_1',
+  project_id: 'proj_saas_123',
+  jenis: 'TOFU',
+  judul: 'Kenapa pemula sering takut menjalankan iklan?',
+  headline: 'Kenapa pemula sering takut menjalankan iklan?',
+  tujuan: 'Membahas ketakutan psikologis beriklan',
+  cta: 'Pelajari selengkapnya',
+  sudut_pandang: 'Empathy',
+});
+const decisionCase1 = resolveVideoIntent({
+  contentItem: case1Item,
+  sharedContext: baseSharedContextSaaS,
+  funnelStrategy: baseFunnelStrategySaaS,
+});
+assert(
+  decisionCase1.recommended_mode === 'human_led',
+  'Test 3D-C1B-CASE-1: Software marketing business + fear content resolves to human_led'
+);
+
+// CASE 2:
+// Content: "Lihat bagaimana fitur analisis iklan bekerja dari upload data sampai rekomendasi."
+// Expected: product_demo
+const case2Item = mockContentItem({
+  no: 102,
+  content_item_id: 'case_2',
+  project_id: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: 'Fitur Analisis Iklan',
+  headline: 'Lihat bagaimana fitur analisis iklan bekerja dari upload data sampai rekomendasi.',
+  tujuan: 'Mendemonstrasikan cara kerja fitur analisis secara nyata',
+  cta: 'Coba fiturnya sekarang',
+  sudut_pandang: 'Demo',
+});
+const decisionCase2 = resolveVideoIntent({
+  contentItem: case2Item,
+  sharedContext: baseSharedContextSaaS,
+  funnelStrategy: baseFunnelStrategySaaS,
+});
+assert(
+  decisionCase2.recommended_mode === 'product_demo',
+  'Test 3D-C1B-CASE-2: Feature in action from upload to recommendation resolves to product_demo'
+);
+
+// CASE 3:
+// Content: "3 langkah menentukan angle iklan yang tepat."
+// Expected: motion_explainer
+const case3Item = mockContentItem({
+  no: 103,
+  content_item_id: 'case_3',
+  project_id: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: 'Menentukan Angle Iklan',
+  headline: '3 langkah menentukan angle iklan yang tepat.',
+  tujuan: 'Edukasi 3 langkah terstruktur',
+  cta: 'Simpan panduan ini',
+  sudut_pandang: 'Framework',
+});
+const decisionCase3 = resolveVideoIntent({
+  contentItem: case3Item,
+  sharedContext: baseSharedContextSaaS,
+  funnelStrategy: baseFunnelStrategySaaS,
+});
+assert(
+  decisionCase3.recommended_mode === 'motion_explainer',
+  'Test 3D-C1B-CASE-3: "3 langkah menentukan angle iklan" resolves to motion_explainer'
+);
+
+// CASE 4:
+// Content: "Saya sering melihat pemula melakukan kesalahan ini saat mulai beriklan."
+// Expected: human_led
+const case4Item = mockContentItem({
+  no: 104,
+  content_item_id: 'case_4',
+  project_id: 'proj_saas_123',
+  jenis: 'TOFU',
+  judul: 'Pengalaman Founder',
+  headline: 'Saya sering melihat pemula melakukan kesalahan ini saat mulai beriklan.',
+  tujuan: 'Sharing pengalaman dan observasi personal',
+  cta: 'Apakah kamu pernah mengalaminya?',
+  sudut_pandang: 'Opini dan refleksi',
+});
+const decisionCase4 = resolveVideoIntent({
+  contentItem: case4Item,
+  sharedContext: baseSharedContextSaaS,
+  funnelStrategy: baseFunnelStrategySaaS,
+});
+assert(
+  decisionCase4.recommended_mode === 'human_led',
+  'Test 3D-C1B-CASE-4: Personal founder observation resolves to human_led'
+);
+
+// CASE 5:
+// Content: "Bandingkan cara manual dengan workflow terstruktur berikut."
+// Expected: motion_explainer
+const case5Item = mockContentItem({
+  no: 105,
+  content_item_id: 'case_5',
+  project_id: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: 'Perbandingan Workflow',
+  headline: 'Bandingkan cara manual dengan workflow terstruktur berikut.',
+  tujuan: 'Membandingkan dua alur secara visual',
+  cta: 'Pilih alur yang lebih efisien',
+  sudut_pandang: 'Perbandingan',
+});
+const decisionCase5 = resolveVideoIntent({
+  contentItem: case5Item,
+  sharedContext: baseSharedContextSaaS,
+  funnelStrategy: baseFunnelStrategySaaS,
+});
+assert(
+  decisionCase5.recommended_mode === 'motion_explainer',
+  'Test 3D-C1B-CASE-5: "Bandingkan cara manual dengan workflow terstruktur" resolves to motion_explainer'
+);
+
+// CASE 6:
+// Content: "Buka dashboard, klik Analisis, lalu lihat bagaimana rekomendasi campaign muncul."
+// Expected: product_demo
+const case6Item = mockContentItem({
+  no: 106,
+  content_item_id: 'case_6',
+  project_id: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: 'Alur Dashboard',
+  headline: 'Buka dashboard, klik Analisis, lalu lihat bagaimana rekomendasi campaign muncul.',
+  tujuan: 'Instruksi navigasi UI dan fitur',
+  cta: 'Coba sekarang di akun Anda',
+  sudut_pandang: 'Walkthrough UI',
+});
+const decisionCase6 = resolveVideoIntent({
+  contentItem: case6Item,
+  sharedContext: baseSharedContextSaaS,
+  funnelStrategy: baseFunnelStrategySaaS,
+});
+assert(
+  decisionCase6.recommended_mode === 'product_demo',
+  'Test 3D-C1B-CASE-6: Explicit UI navigation (buka dashboard, klik Analisis) resolves to product_demo'
+);
+
+// CASE 7:
+// SharedContext: produk aplikasi software website
+// Content: "Kenapa banyak orang bingung menentukan target market?"
+// Expected: human_led
+const genericAppSharedContext: SharedContentContext = {
+  ...baseSharedContextSaaS,
+  brand_context: {
+    brand_name: 'TechApp',
+    category: 'Produk aplikasi software website sistem',
+    brand_summary: 'Platform software aplikasi web',
+    brand_voice: 'Tech authority',
+  },
+};
+const case7Item = mockContentItem({
+  no: 107,
+  content_item_id: 'case_7',
+  project_id: 'proj_saas_123',
+  jenis: 'TOFU',
+  judul: 'Target Market',
+  headline: 'Kenapa banyak orang bingung menentukan target market?',
+  tujuan: 'Membahas kebingungan umum dalam menentukan market',
+  cta: 'Simak ulasannya',
+  sudut_pandang: 'Relatable problem',
+});
+const decisionCase7 = resolveVideoIntent({
+  contentItem: case7Item,
+  sharedContext: genericAppSharedContext,
+  funnelStrategy: baseFunnelStrategySaaS,
+});
+assert(
+  decisionCase7.recommended_mode === 'human_led',
+  'Test 3D-C1B-CASE-7: SharedContext generic software words do NOT cause product_demo; resolves to human_led'
+);
+
+// CASE 8:
+// Content: "5 kesalahan saat menyusun funnel marketing."
+// Expected: motion_explainer
+const case8Item = mockContentItem({
+  no: 108,
+  content_item_id: 'case_8',
+  project_id: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: '5 Kesalahan Funnel',
+  headline: '5 kesalahan saat menyusun funnel marketing.',
+  tujuan: 'Edukasi 5 poin kesalahan',
+  cta: 'Hindari 5 kesalahan ini',
+  sudut_pandang: 'Listicle',
+});
+const decisionCase8 = resolveVideoIntent({
+  contentItem: case8Item,
+  sharedContext: baseSharedContextSaaS,
+  funnelStrategy: baseFunnelStrategySaaS,
+});
+assert(
+  decisionCase8.recommended_mode === 'motion_explainer',
+  'Test 3D-C1B-CASE-8: "5 kesalahan saat menyusun funnel" resolves to motion_explainer'
+);
+
+// CASE 9:
+// Content: "Berikut dashboard produk kami."
+// Expected: human_led (semantic default, no explicit demo/screen action)
+const case9Item = mockContentItem({
+  no: 109,
+  content_item_id: 'case_9',
+  project_id: 'proj_saas_123',
+  jenis: 'TOFU',
+  judul: 'Dashboard Produk',
+  headline: 'Berikut dashboard produk kami.',
+  tujuan: 'Mengenalkan overview produk',
+  cta: 'Kunjungi situs kami',
+  sudut_pandang: 'Overview singkat',
+});
+const decisionCase9 = resolveVideoIntent({
+  contentItem: case9Item,
+  sharedContext: baseSharedContextSaaS,
+  funnelStrategy: baseFunnelStrategySaaS,
+});
+assert(
+  decisionCase9.recommended_mode === 'human_led',
+  'Test 3D-C1B-CASE-9: "Berikut dashboard produk kami." without explicit demonstration resolves to semantic default human_led'
+);
+
+// CASE 10:
+// Content memiliki structured framework sekaligus explicit instruction membuka aplikasi dan menunjukkan proses aktual di layar.
+// Expected: product_demo karena explicit execution/demo intent lebih kuat.
+const case10Item = mockContentItem({
+  no: 110,
+  content_item_id: 'case_10',
+  project_id: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: '3 Langkah Setup Campaign di Layar',
+  headline: '3 langkah setup campaign: buka dashboard, klik menu Analisis, dan lihat bagaimana rekomendasi campaign muncul.',
+  tujuan: 'Menunjukkan langkah setup langsung di layar UI',
+  cta: 'Terapkan di akun Anda',
+  sudut_pandang: 'Screen walkthrough',
+});
+const decisionCase10 = resolveVideoIntent({
+  contentItem: case10Item,
+  sharedContext: baseSharedContextSaaS,
+  funnelStrategy: baseFunnelStrategySaaS,
+});
+assert(
+  decisionCase10.recommended_mode === 'product_demo',
+  'Test 3D-C1B-CASE-10: Combined framework + explicit UI action opening app resolves to product_demo (execution precedence)'
 );
 
 // -------------------------------------------------------------

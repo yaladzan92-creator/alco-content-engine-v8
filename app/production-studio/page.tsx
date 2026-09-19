@@ -3437,7 +3437,7 @@ export default function ProductionStudioPage() {
     });
 
     if (!prepResult.ok || !prepResult.package) {
-      const prepErr = prepResult.error || 'Gagal menyiapkan production package.';
+      const prepErr = (!prepResult.ok ? (prepResult as any).error : null) || 'Gagal menyiapkan production package.';
       setImageGenerateError(prepErr);
       showToast(`Gagal prepare package: ${prepErr}`);
       return;

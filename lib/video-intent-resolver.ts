@@ -1,5 +1,5 @@
-import { ContentItem, SharedContentContext } from './content-contract';
-import { FunnelStrategy, FunnelStage, normalizeFunnelStage, parseStrictFunnelStage } from './funnel-strategy';
+import { ContentItem, SharedContentContext, FunnelStage } from './content-contract';
+import { FunnelStrategy, normalizeFunnelStage, parseStrictFunnelStage } from './funnel-strategy';
 import { VideoProductionMode } from './production-contract';
 import { ProductionEngineContext } from './production-engine-context';
 
@@ -35,188 +35,285 @@ export function getVideoProductionModeDescription(mode: VideoProductionMode): st
 /**
  * Resolves video production mode recommendation deterministically from authoritative context.
  *
- * Precedence:
- * 1. ContentItem explicit demonstration intent (e.g. demo, walkthrough, lihat cara/fitur bekerja) -> product_demo
- * 2. ContentItem structured framework/process/steps/list signals -> motion_explainer
- * 3. ContentItem empathy/objection/relatable problem/perspective signals -> human_led
- * 4. Funnel stage modifier (TOFU favors human_led, MOFU favors motion_explainer/demo, BOFU favors demo/objection-led human)
- * 5. General fallback -> human_led
+ * AUTHORITY ORDER:
+ * 1. ContentItem — PRIMARY AUTHORITY (editorial headline, purpose, body, angle, and visual directions)
+ * 2. FunnelStrategy — SUPPORTING EVIDENCE (contextual weighting only, never hardcoding stage to mode)
+ * 3. SharedContentContext — SUBJECT/BUSINESS CONTEXT ONLY (brand/product identity, NEVER dictates mode alone)
  *
- * NOTE: Generic business context keywords (aplikasi, software, produk, website) alone NEVER trigger product_demo.
+ * FAIL-CLOSED:
+ * If authoritative ContentItem or context is missing or invalid, throws an explicit Error.
+ * Never performs silent fallback or hallucinates replacement business facts.
+ *
+ * PRIORITY & TIE-BREAKING:
+ * 1. Explicit actual-screen/UI execution intent (e.g. open app, click buttons, walk through active UI) -> product_demo
+ * 2. Structured framework / sequential steps / comparison without screen execution requirement -> motion_explainer
+ * 3. Relatable problem / fear / personal observation / empathy / objection handling -> human_led
+ * 4. In case both structured framework and explicit screen execution are present, explicit UI execution takes precedence (product_demo)
+ * 5. Deterministic semantic default fallback (when no strong product_demo or motion_explainer is present) -> human_led
  */
 export function resolveVideoIntent(
   input:
     | ProductionEngineContext
     | {
         contentItem: ContentItem;
-        sharedContext: SharedContentContext;
-        funnelStrategy: FunnelStrategy;
+        sharedContext?: SharedContentContext | null;
+        funnelStrategy?: FunnelStrategy | null;
         canonical_funnel_stage?: FunnelStage;
       }
 ): VideoIntentDecision {
-  if (!input) {
-    return {
-      recommended_mode: 'human_led',
-      recommendation_reason: 'Konten ini lebih efektif disampaikan langsung oleh talent secara personal karena tidak terdapat intent demonstrasi produk maupun alur diagram visual khusus.',
-      required_inputs: ['character'],
-      optional_inputs: ['b_roll_visual']
-    };
+  // 0. FAIL-CLOSED AUTHORITY VALIDATION
+  if (!input || typeof input !== 'object') {
+    throw new Error('resolveVideoIntent: Authority context is required (FAIL CLOSED). Missing input.');
   }
 
-  // Extract authoritative components
   const contentItem: ContentItem | undefined =
     'content_item' in input ? input.content_item : input.contentItem;
-  const sharedContext: SharedContentContext | undefined =
-    'shared_context' in input ? input.shared_context : input.sharedContext;
-  const funnelStrategy: FunnelStrategy | undefined =
+  const funnelStrategy: FunnelStrategy | undefined | null =
     'funnel_strategy' in input ? input.funnel_strategy : input.funnelStrategy;
 
-  if (!contentItem) {
-    return {
-      recommended_mode: 'human_led',
-      recommendation_reason: 'Konten ini lebih efektif disampaikan langsung oleh talent secara personal karena tidak terdapat intent demonstrasi produk maupun alur diagram visual khusus.',
-      required_inputs: ['character'],
-      optional_inputs: ['b_roll_visual']
-    };
+  if (!contentItem || typeof contentItem !== 'object') {
+    throw new Error('resolveVideoIntent: Authoritative ContentItem is required (FAIL CLOSED). Missing contentItem.');
   }
 
-  // Determine funnel stage
-  let stage: FunnelStage | null = null;
-  if ('canonical_funnel_stage' in input && input.canonical_funnel_stage) {
-    stage = input.canonical_funnel_stage;
-  } else if (contentItem.jenis) {
-    stage = parseStrictFunnelStage(contentItem.jenis) || normalizeFunnelStage(contentItem.jenis);
+  // Extract ContentItem textual fields (Primary authoritative source)
+  const itemHeadline = (contentItem.headline || '').trim();
+  const itemJudul = (contentItem.judul || '').trim();
+  const itemTujuan = (contentItem.tujuan || '').trim();
+  const itemBody = (contentItem.body || '').trim();
+  const itemVisual = (contentItem.visual || '').trim();
+  const itemKeterangan = (contentItem.keterangan || '').trim();
+  const itemCta = (contentItem.cta || '').trim();
+  const itemSudutPandang = (contentItem.sudut_pandang || '').trim();
+  const itemFormat = (contentItem.format || '').trim();
+  const itemAssetReason = (contentItem.assetTypeReason || '').trim();
+  const itemPrimaryAsset = (contentItem.primaryAssetType || '').trim();
+
+  const hasContentText = Boolean(
+    itemHeadline ||
+    itemJudul ||
+    itemTujuan ||
+    itemBody ||
+    itemVisual ||
+    itemKeterangan ||
+    itemCta ||
+    itemSudutPandang ||
+    itemAssetReason
+  );
+
+  if (!hasContentText) {
+    throw new Error('resolveVideoIntent: ContentItem must contain valid textual content (FAIL CLOSED).');
   }
 
-  // Extract Content Item textual fields (Primary authoritative source)
-  const itemHeadline = (contentItem.headline || '').toLowerCase();
-  const itemTujuan = (contentItem.tujuan || '').toLowerCase();
-  const itemBody = (contentItem.body || '').toLowerCase();
-  const itemVisual = (contentItem.visual || '').toLowerCase();
-  const itemKeterangan = (contentItem.keterangan || '').toLowerCase();
-  const itemCta = (contentItem.cta || '').toLowerCase();
-  const itemFormat = (contentItem.format || '').toLowerCase();
-  const itemAssetReason = (contentItem.assetTypeReason || '').toLowerCase();
-  const itemPrimaryAsset = (contentItem.primaryAssetType || '').toLowerCase();
+  // Isolate ContentItem text strictly without combining SharedContentContext.
+  // SharedContentContext is subject context only and must never inflate production mode scores.
+  const editorialText = `${itemHeadline} ${itemJudul} ${itemTujuan} ${itemBody} ${itemSudutPandang} ${itemKeterangan}`.toLowerCase();
+  const directionText = `${itemVisual} ${itemCta} ${itemFormat} ${itemAssetReason} ${itemPrimaryAsset}`.toLowerCase();
+  const itemFullText = `${editorialText} ${directionText}`;
 
-  const itemPrimaryText = `${itemHeadline} ${itemTujuan} ${itemBody} ${itemVisual} ${itemKeterangan} ${itemCta} ${itemFormat} ${itemAssetReason} ${itemPrimaryAsset}`;
-
+  // 1. EVALUATE PRODUCT DEMO (Strict execution / hands-on demonstration required)
+  // Generic business words (aplikasi, software, website, produk, dashboard) alone do NOT qualify.
   let productDemoScore = 0;
-  let motionExplainerScore = 0;
-  let humanLedScore = 0;
+  let hasExplicitProductExecution = false;
 
-  // 1. EVALUATE PRODUCT DEMO (Strict demonstration intent required)
-  // Strong demonstration patterns
-  const demoActionPatterns = [
-    /\b(demo|demonstrasi|walkthrough|screen recording|rekaman layar)\b/i,
-    /(lihat|tunjukkan|tampilkan|uji|preview|coba|bedah)\s+(fitur|dashboard|alur|cara kerja|antarmuka|layar|tools|aplikasi|produk|workflow|proses)/i,
-    /(cara|langkah)\s+(menggunakan|memakai|menjalankan|mengoperasikan)\s+(fitur|dashboard|aplikasi|tools|produk|software)/i,
-    /(lihat|tonton)\s+bagaimana\s+.+\s+(digunakan|bekerja|dijalankan|beroperasi)/i,
-    /(fitur|dashboard|sistem)\s+.+\s+(bekerja|beroperasi)\s+(sebelum|secara langsung|nyata)/i,
-    /(klik tombol|tampilan aplikasi|workflow aplikasi|uji fitur|preview fitur|interaksi fitur|before \/? after penggunaan produk)/i,
-    /(screen|tampilan|interface|ui)\s+(aplikasi|software|dashboard|produk)/i,
+  // Strong execution patterns: active screen demonstration, UI walkthrough, interactive steps
+  const explicitExecutionPatterns = [
+    /\b(screen recording|rekaman layar|screencast|walkthrough|live demo)\b/i,
+    /\b(buka dashboard|buka aplikasi|login ke dashboard|masuk ke dashboard)\b.*\b(klik|pilih|menu|tombol|analisis|lihat)\b/i,
+    /\b(buka dashboard|buka aplikasi|login ke dashboard)\b/i,
+    /\bklik\s+([a-z0-9_\-\s]+)?(tombol|menu|analisis|tab|opsi|fitur|button)\b/i,
+    /\bupload\s+.*(lalu|sampai|hingga)\s+(lihat|muncul|rekomendasi|hasil)/i,
+    /\b(lihat|tonton)\s+bagaimana\s+fitur\s+.*bekerja/i,
+    /\bfitur\s+.*bekerja\s+(dari|secara|sebelum|langsung|nyata)/i,
+    /\b(cara kerja fitur|fitur bekerja|workflow produk|workflow aplikasi|tampilan aplikasi)\b/i,
+    /\b(lihat cara|lihat proses|lihat fitur)\b/i,
+    /\b(cara menggunakan|langkah penggunaan|step penggunaan)\s+(fitur|dashboard|aplikasi|tools|software)/i,
+    /\b(actual product screen|layar produk aktual|rekaman ui|tampilan antarmuka aktual)\b/i,
+    /\b(before\s*\/?\s*after\s+penggunaan\s+produk|sebelum\s+dan\s+sesudah\s+(menggunakan|memakai)\s+(aplikasi|software|produk))\b/i,
+    /\b(setup campaign langsung di layar ui|demonstrasi alur kerja otomatis|menunjukkan langkah.*di layar)\b/i,
   ];
 
-  for (const pattern of demoActionPatterns) {
-    if (pattern.test(itemPrimaryText)) {
-      productDemoScore += 8;
+  for (const pattern of explicitExecutionPatterns) {
+    if (pattern.test(itemFullText)) {
+      hasExplicitProductExecution = true;
+      productDemoScore += 12;
       break;
     }
   }
 
-  // Supporting visual / metadata cues for demonstration
-  if (/\b(rekaman layar|screen recording|screencast|walkthrough ui|tangkapan layar)\b/i.test(itemVisual + ' ' + itemAssetReason)) {
+  // Supporting visual/asset metadata for screen demonstration
+  if (/\b(rekaman layar|screen recording|screencast|walkthrough ui|tangkapan layar|product_screen)\b/i.test(directionText)) {
     productDemoScore += 3;
+    hasExplicitProductExecution = true;
   }
 
-  // 2. EVALUATE MOTION EXPLAINER (Framework / Steps / Comparison / Diagram)
-  const motionPatterns = [
-    /\b(framework|diagram|checklist|matriks|matrix|formula|infografis|grafik|timeline|breakdown|klasifikasi|peta|mindset)\b/i,
-    /\b(\d+|tiga|lima|empat|tujuh|sepuluh)\s+(langkah|tahap|step|alur|cara|kesalahan|poin|pilar|tips|strategi|prinsip|kategori|rumus)\b/i,
-    /\b(langkah-langkah|tahapan|alur kerja|perbandingan|komparasi|vs|versus|struktur|anatomi|fondasi|pola|perbedaan)\b/i,
-    /(bagaimana|cara)\s+(membuat|membangun|menyusun|merancang)\s+(funnel|sistem|alur|struktur|framework|strategi)/i,
-    /(3|5|4|7|\d+)\s+kesalahan\s+(pemula|umum|fatal|saat)/i,
-  ];
+  // 2. EVALUATE MOTION EXPLAINER (Structured Framework / Steps / Comparison / Diagram)
+  let motionExplainerScore = 0;
+  let hasNumberedFramework = false;
+  let hasComparisonOrWorkflow = false;
 
-  for (const pattern of motionPatterns) {
-    if (pattern.test(itemPrimaryText)) {
-      motionExplainerScore += 8;
-      break;
-    }
+  // Numbered listicle / steps / framework
+  const numberedFrameworkPattern = /\b(\d+|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh)\s+(langkah|tahap|tahapan|step|alur|cara|kesalahan|poin|pilar|tips|strategi|prinsip|kategori|rumus|formula|metode|hal|alasan)\b/i;
+  if (numberedFrameworkPattern.test(itemFullText)) {
+    hasNumberedFramework = true;
+    motionExplainerScore += 10;
   }
 
-  // Supporting visual cues for motion / diagram
-  if (/\b(diagram|alur visual|infografis|grafik|animasi teks|pilar fondasi|chart)\b/i.test(itemVisual + ' ' + itemAssetReason)) {
+  // Comparison & structured workflows
+  const comparisonPattern = /\b(perbandingan|komparasi|vs|versus|perbedaan alur|bandingkan\s+(cara|metode|alur|workflow)?.*(dengan|versus|vs)|workflow terstruktur|alur kerja terstruktur|alur sistem terstruktur)\b/i;
+  if (comparisonPattern.test(itemFullText)) {
+    hasComparisonOrWorkflow = true;
+    motionExplainerScore += 10;
+  }
+
+  // General structured concepts & diagrammatic visual cues
+  const structuredVisualPattern = /\b(framework|diagram|checklist|matriks|matrix|formula|infografis|grafik|flowchart|peta konsep|anatomi|fondasi alur|klasifikasi|breakdown visual|timeline|langkah-langkah|step-by-step)\b/i;
+  if (structuredVisualPattern.test(itemFullText)) {
+    motionExplainerScore += 8;
+  }
+
+  if (/\b(diagram|alur visual|infografis|grafik|animasi teks|motion graphic|graphic_motion)\b/i.test(directionText)) {
     motionExplainerScore += 3;
   }
 
-  // 3. EVALUATE HUMAN-LED (Empathy / Opinion / Perspective / Relatable Problem / Trust / Objection)
-  const humanPatterns = [
-    /\b(kenapa|mengapa|alasan|rahasia|curhat|opini|perspektif|sudut pandang|jujur|cerita|kisah|pengalaman)\b/i,
-    /\b(takut|ketakutan|khawatir|bingung|ragu|keraguan|objection|hambatan mental|trauma|frustrasi|gagal)\b/i,
-    /\b(apakah|beneran|benar-benar|mitos|myth|misconception|fakta vs mitos|realita)\b/i,
-    /\b(pemula|kreator|solopreneur|pebisnis)\s+(takut|ragu|bingung|merasa|berpikir)\b/i,
-    /\b(trust|kepercayaan|relatable|koneksi|cerita pribadi|pengalaman nyata|pengalaman pribadi|blak-blakan)\b/i,
-    /(bicara|bicara langsung|ngobrol|monolog|tatap kamera|wajah|ekspresi|interaksi personal)/i,
-  ];
+  // 3. EVALUATE HUMAN-LED (Empathy / Personal Perspective / Relatable Problem / Trust / Objection)
+  let humanLedScore = 0;
+  let hasPersonalObservation = false;
+  let hasFearOrRelatableProblem = false;
 
-  for (const pattern of humanPatterns) {
-    if (pattern.test(itemPrimaryText)) {
-      humanLedScore += 8;
-      break;
-    }
+  // Personal perspective & storytelling observation
+  const personalPerspectivePattern = /\b(saya sering melihat|pengalaman saya|cerita saya|kisah nyata|curhat|opini saya|perspektif personal|blak-blakan|saya\s+(sering|pernah|melihat|merasa|pikir|temui|alami)|storytelling personal|dari founder)\b/i;
+  if (personalPerspectivePattern.test(itemFullText)) {
+    hasPersonalObservation = true;
+    humanLedScore += 10;
   }
 
-  // 4. FUNNEL STRATEGY MODIFIER
-  if (stage === 'TOFU') {
-    humanLedScore += 1.5;
-    motionExplainerScore += 0.5;
-  } else if (stage === 'MOFU') {
-    motionExplainerScore += 1.5;
-    if (productDemoScore > 0) {
-      productDemoScore += 0.5;
-    }
-  } else if (stage === 'BOFU') {
-    if (productDemoScore > 0) {
-      productDemoScore += 1.5;
-    } else if (humanLedScore > 0) {
+  // Psychological friction, fear, misconception, relatable emotional confusion
+  const emotionalProblemPattern = /\b(kenapa|mengapa)\s+.*(takut|ragu|bingung|khawatir|frustrasi|mentok|gagal|susah|berat|sulit)\b/i;
+  const relatableConfusionPattern = /\b(kenapa banyak orang bingung|kenapa pemula sering takut|mengapa kita ragu|masalah audiens)\b/i;
+  const emotionalKeywordsPattern = /\b(takut|ketakutan|khawatir|bingung|kebingungan|ragu|keraguan|objection|hambatan mental|trauma|frustrasi)\b/i;
+
+  if (emotionalProblemPattern.test(itemFullText) || relatableConfusionPattern.test(itemFullText)) {
+    hasFearOrRelatableProblem = true;
+    humanLedScore += 10;
+  } else if (emotionalKeywordsPattern.test(itemFullText)) {
+    hasFearOrRelatableProblem = true;
+    humanLedScore += 8;
+  }
+
+  // Direct talent communication & trust
+  const directTalentPattern = /\b(apakah|beneran|benar-benar|mitos|myth|misconception|fakta vs mitos|realita|menjawab keraguan|bicara langsung|ngobrol|monolog|tatap kamera|wajah|ekspresi|interaksi personal|talking head|instruktur|tanya saya di kolom komentar|simpan postingan ini jika kamu merasakannya)\b/i;
+  if (directTalentPattern.test(itemFullText)) {
+    humanLedScore += 8;
+  }
+
+  // 4. FUNNEL STRATEGY AS SUPPORTING EVIDENCE (Contextual weighting only)
+  // Stage resolution: canonical_funnel_stage > parseStrictFunnelStage > normalizeFunnelStage
+  const resolvedStage: FunnelStage | null =
+    ('canonical_funnel_stage' in input && input.canonical_funnel_stage)
+      ? input.canonical_funnel_stage
+      : (contentItem.jenis ? (parseStrictFunnelStage(contentItem.jenis) || normalizeFunnelStage(contentItem.jenis)) : null);
+
+  if (funnelStrategy && resolvedStage) {
+    if (resolvedStage === 'TOFU') {
       humanLedScore += 1.5;
+      motionExplainerScore += 0.5;
+    } else if (resolvedStage === 'MOFU') {
+      motionExplainerScore += 1.5;
+      if (productDemoScore > 0) {
+        productDemoScore += 0.5;
+      }
+    } else if (resolvedStage === 'BOFU') {
+      if (productDemoScore > 0) {
+        productDemoScore += 1.5;
+      }
+      if (humanLedScore > 0) {
+        humanLedScore += 1.5;
+      }
     }
   }
 
-  // 5. DETERMINISTIC DECISION & REASONING
+  // 5. DETERMINISTIC DECISION & TIE-BREAKING
+  // PRIORITY RULE (Case 10):
+  // When explicit interactive UI screen execution is present (e.g. open app, click buttons, walk through active UI),
+  // product_demo takes precedence even if structured framework terms ("3 langkah", "tahap") are mentioned.
+  if (hasExplicitProductExecution && productDemoScore >= 8) {
+    let reason = 'Konten secara eksplisit menunjukkan demonstrasi fitur dan alur kerja aplikasi di layar.';
+    if (/\b(buka dashboard|klik|upload.*lalu|navigasi)/i.test(itemFullText)) {
+      reason = 'Konten memuat instruksi interaksi antarmuka langsung (seperti membuka dashboard atau klik fitur), sehingga format demo produk paling sesuai.';
+    } else if (hasNumberedFramework) {
+      reason = 'Meskipun memuat langkah terstruktur, konten secara eksplisit mengarahkan alur kerja pada tampilan layar aktual sehingga format demo produk diutamakan.';
+    } else if (/\b(fitur.*bekerja|cara kerja fitur|lihat bagaimana)/i.test(itemFullText)) {
+      reason = 'Konten berfokus memperlihatkan cara kerja fitur dari awal hingga hasil di antarmuka produk secara nyata.';
+    }
+
+    return {
+      recommended_mode: 'product_demo',
+      recommendation_reason: reason,
+      required_inputs: ['product_screenshot'],
+      optional_inputs: ['screen_recording', 'brand_logo']
+    };
+  }
+
+  // PRIORITY RULE: Structured framework / process / comparison without screen execution
+  if (motionExplainerScore >= 8 && motionExplainerScore >= humanLedScore) {
+    let reason = 'Konten berfokus pada visualisasi langkah terstruktur dan framework konseptual.';
+    if (hasNumberedFramework) {
+      reason = 'Konten menjelaskan poin atau tahapan terstruktur secara sistematis, sehingga lebih jelas disampaikan melalui animasi visual diagram dan motion explainer.';
+    } else if (hasComparisonOrWorkflow) {
+      reason = 'Konten membandingkan alur kerja atau metode, sehingga format visual perbandingan diagram motion explainer memberikan kejelasan optimal.';
+    }
+
+    return {
+      recommended_mode: 'motion_explainer',
+      recommendation_reason: reason,
+      required_inputs: [],
+      optional_inputs: ['diagram_framework', 'brand_visual', 'data_points']
+    };
+  }
+
+  // PRIORITY RULE: Human-led relatable problem, personal observation, or direct connection
+  if (humanLedScore >= 8 && humanLedScore > productDemoScore && humanLedScore > motionExplainerScore) {
+    let reason = 'Konten berfokus pada komunikasi pesan langsung oleh talent untuk membangun kedekatan dan kepercayaan audiens.';
+    if (hasPersonalObservation) {
+      reason = 'Konten menyampaikan observasi personal dan refleksi pengalaman secara langsung, sehingga format talent berbicara ke kamera memberikan koneksi dan kepercayaan terbaik.';
+    } else if (hasFearOrRelatableProblem) {
+      reason = 'Konten membahas ketakutan, keraguan, atau masalah relatable audiens secara mendalam, sehingga pendekatan tatap kamera oleh talent paling tepat untuk membangun empati dan trust.';
+    }
+
+    return {
+      recommended_mode: 'human_led',
+      recommendation_reason: reason,
+      required_inputs: ['character'],
+      optional_inputs: ['b_roll_visual']
+    };
+  }
+
+  // Tie-breaker: compare remaining positive scores
   if (productDemoScore > motionExplainerScore && productDemoScore > humanLedScore) {
     return {
       recommended_mode: 'product_demo',
-      recommendation_reason: 'Konten berfokus pada demonstrasi dan alur penggunaan fitur secara nyata, sehingga paling efektif ditampilkan melalui demo produk/aplikasi.',
+      recommendation_reason: 'Konten menekankan demonstrasi penggunaan fitur produk di layar, sehingga format demo produk direkomendasikan.',
       required_inputs: ['product_screenshot'],
-      optional_inputs: ['logo', 'screen_recording']
+      optional_inputs: ['screen_recording', 'brand_logo']
     };
   }
 
   if (motionExplainerScore > productDemoScore && motionExplainerScore >= humanLedScore) {
     return {
       recommended_mode: 'motion_explainer',
-      recommendation_reason: 'Konten berfokus pada langkah, framework, atau perbandingan terstruktur, sehingga lebih jelas dipahami melalui visual diagram dan motion explainer.',
+      recommendation_reason: 'Konten berfokus pada penyampaian konsep terstruktur melalui visual dan animasi motion.',
       required_inputs: [],
-      optional_inputs: ['brand_visual']
+      optional_inputs: ['diagram_framework', 'brand_visual', 'data_points']
     };
   }
 
-  if (humanLedScore > 0) {
-    return {
-      recommended_mode: 'human_led',
-      recommendation_reason: 'Konten membahas masalah audiens, opini, atau objection secara langsung, sehingga lebih efektif disampaikan oleh talent untuk membangun kedekatan dan kepercayaan.',
-      required_inputs: ['character'],
-      optional_inputs: ['b_roll_visual']
-    };
-  }
-
-  // Default fallback
+  // DETERMINISTIC SEMANTIC DEFAULT FALLBACK (human_led)
+  // When no strong product demo or structured explainer intent exists (e.g. passive mentions or general statements)
   return {
     recommended_mode: 'human_led',
-    recommendation_reason: 'Konten ini lebih efektif disampaikan langsung oleh talent secara personal karena tidak terdapat intent demonstrasi produk maupun alur diagram visual khusus.',
+    recommendation_reason: 'Konten berfokus pada pesan komunikasi langsung tanpa instruksi demonstrasi layar interaktif maupun diagram framework khusus, sehingga format talent direkomendasikan.',
     required_inputs: ['character'],
     optional_inputs: ['b_roll_visual']
   };
 }
+

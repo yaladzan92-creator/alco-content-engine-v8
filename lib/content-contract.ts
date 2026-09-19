@@ -213,6 +213,9 @@ export interface ContentItem {
   isManualEdited?: boolean;
   carousel_plan?: CarouselPlan;
   productionProgress?: ProductionProgress;
+  // Optional editorial metadata
+  judul?: string;
+  sudut_pandang?: string;
 }
 
 export function ensureContentItemIdentity(
