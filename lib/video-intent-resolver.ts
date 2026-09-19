@@ -111,11 +111,12 @@ export function resolveVideoIntent(
 
   const canonicalStage = rawInput.canonical_funnel_stage;
   if (
-    !canonicalStage ||
     typeof canonicalStage !== 'string' ||
-    !['TOFU', 'MOFU', 'BOFU'].includes(canonicalStage.trim())
+    !['TOFU', 'MOFU', 'BOFU'].includes(canonicalStage)
   ) {
-    throw new Error('resolveVideoIntent: ProductionEngineContext must contain a valid canonical_funnel_stage (FAIL CLOSED).');
+    throw new Error(
+      'resolveVideoIntent: ProductionEngineContext must contain an exact canonical_funnel_stage: TOFU, MOFU, or BOFU (FAIL CLOSED).'
+    );
   }
 
   // Extract ContentItem textual fields (Primary authoritative source)
@@ -251,7 +252,7 @@ export function resolveVideoIntent(
 
   // 4. FUNNEL STRATEGY AS SUPPORTING EVIDENCE (Contextual weighting only)
   // Use authoritative canonical_funnel_stage directly from ProductionEngineContext
-  const resolvedStage: FunnelStage = input.canonical_funnel_stage;
+  const resolvedStage: FunnelStage = canonicalStage as FunnelStage;
 
   if (funnelStrategy && resolvedStage) {
     if (resolvedStage === 'TOFU') {

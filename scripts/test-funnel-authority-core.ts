@@ -102,7 +102,7 @@ if (typeof global.window === 'undefined') {
   };
 }
 
-function assert(condition: boolean | undefined | null, message: string) {
+function assert(condition: any, message: string) {
   if (Boolean(condition)) {
     successes.push(message);
   } else {
@@ -4804,6 +4804,142 @@ try {
   threwOnMissingStage = true;
 }
 assert(threwOnMissingStage, 'TEST D: resolveVideoIntent fails closed on missing canonical_funnel_stage');
+
+// STAGE REGRESSION TESTS (Exact canonical_funnel_stage validation)
+// TEST 1 — exact TOFU
+const decisionStageTOFU = resolveVideoIntent({
+  project_id: 'proj_saas_123',
+  shared_context: baseSharedContextSaaS,
+  funnel_strategy: baseFunnelStrategySaaS,
+  content_item: case1Item,
+  canonical_funnel_stage: 'TOFU',
+});
+assert(decisionStageTOFU.recommended_mode === 'human_led', 'STAGE TEST 1: exact TOFU is accepted');
+
+// TEST 2 — exact MOFU
+const decisionStageMOFU = resolveVideoIntent({
+  project_id: 'proj_saas_123',
+  shared_context: baseSharedContextSaaS,
+  funnel_strategy: baseFunnelStrategySaaS,
+  content_item: case1Item,
+  canonical_funnel_stage: 'MOFU',
+});
+assert(decisionStageMOFU.recommended_mode === 'human_led', 'STAGE TEST 2: exact MOFU is accepted');
+
+// TEST 3 — exact BOFU
+const decisionStageBOFU = resolveVideoIntent({
+  project_id: 'proj_saas_123',
+  shared_context: baseSharedContextSaaS,
+  funnel_strategy: baseFunnelStrategySaaS,
+  content_item: case1Item,
+  canonical_funnel_stage: 'BOFU',
+});
+assert(decisionStageBOFU.recommended_mode === 'human_led', 'STAGE TEST 3: exact BOFU is accepted');
+
+// TEST 4 — leading whitespace
+let threwOnLeadingWs = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: ' TOFU',
+  });
+} catch (e: any) {
+  threwOnLeadingWs = true;
+}
+assert(threwOnLeadingWs, 'STAGE TEST 4: leading whitespace " TOFU" fails closed');
+
+// TEST 5 — trailing whitespace
+let threwOnTrailingWs = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: 'TOFU ',
+  });
+} catch (e: any) {
+  threwOnTrailingWs = true;
+}
+assert(threwOnTrailingWs, 'STAGE TEST 5: trailing whitespace "TOFU " fails closed');
+
+// TEST 6 — both-side whitespace
+let threwOnBothWs = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: ' TOFU ',
+  });
+} catch (e: any) {
+  threwOnBothWs = true;
+}
+assert(threwOnBothWs, 'STAGE TEST 6: both-side whitespace " TOFU " fails closed');
+
+// TEST 7 — lowercase
+let threwOnLowercase = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: 'tofu',
+  });
+} catch (e: any) {
+  threwOnLowercase = true;
+}
+assert(threwOnLowercase, 'STAGE TEST 7: lowercase "tofu" fails closed');
+
+// TEST 8 — mixed case
+let threwOnMixedCase = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: 'Tofu',
+  });
+} catch (e: any) {
+  threwOnMixedCase = true;
+}
+assert(threwOnMixedCase, 'STAGE TEST 8: mixed case "Tofu" fails closed');
+
+// TEST 9 — empty string
+let threwOnEmptyStage = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: '',
+  });
+} catch (e: any) {
+  threwOnEmptyStage = true;
+}
+assert(threwOnEmptyStage, 'STAGE TEST 9: empty string "" fails closed');
+
+// TEST 10 — malformed value
+let threwOnMalformedStage = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: 'AWARENESS',
+  });
+} catch (e: any) {
+  threwOnMalformedStage = true;
+}
+assert(threwOnMalformedStage, 'STAGE TEST 10: malformed value "AWARENESS" fails closed');
 
 // TEST E: Canonical context works
 const ctxE = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case1Item);
