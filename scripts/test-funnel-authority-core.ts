@@ -6843,6 +6843,47 @@ assert(
   'C1C-D STATIC GUARD 5: scripts/test-video-scene-completion.ts must NOT contain "as any"'
 );
 
+// =============================================================
+// PHASE 3D-C1C-D+ STATIC REGRESSION GUARDS: PRODUCTION INPUT BINDING
+// =============================================================
+const pageSrc = fs.readFileSync(path.join(process.cwd(), 'app/production-studio/page.tsx'), 'utf-8');
+assert(
+  videoSceneCompletionSrc.includes('production_input_signature: string'),
+  'C1C-D+ STATIC GUARD 1: VideoSceneCompletionState must contain production_input_signature: string'
+);
+
+assert(
+  videoSceneCompletionSrc.includes('typed.production_input_signature !== expected.production_input_signature'),
+  'C1C-D+ STATIC GUARD 2: Completion validator must strictly compare production_input_signature'
+);
+
+assert(
+  pageSrc.includes('currentVideoProductionInputSignature'),
+  'C1C-D+ STATIC GUARD 3: page.tsx completion effect must include currentVideoProductionInputSignature'
+);
+
+assert(
+  !videoSceneCompletionSrc.includes('timestamps.created_at') &&
+  !videoSceneCompletionSrc.includes('timestamps.updated_at') &&
+  !videoSceneCompletionSrc.includes('timestamps?.'),
+  'C1C-D+ STATIC GUARD 4: No CharacterDNA timestamp field is used in signature calculation'
+);
+
+assert(
+  !videoSceneCompletionSrc.includes('createObjectURL') &&
+  !videoSceneCompletionSrc.includes('FileReader') &&
+  !videoSceneCompletionSrc.includes('new Blob') &&
+  !videoSceneCompletionSrc.includes('instanceof Blob') &&
+  !videoSceneCompletionSrc.includes('base64,'),
+  'C1C-D+ STATIC GUARD 5: No File / Blob / Base64 / URL.createObjectURL persisted in video scene completion'
+);
+
+assert(
+  !videoSceneCompletionSrc.includes(': any') &&
+  !videoSceneCompletionSrc.includes('as any'),
+  'C1C-D+ STATIC GUARD 6: No any added to solve typing in lib/video-scene-completion.ts'
+);
+
 // -------------------------------------------------------------
 // RESULTS SUMMARY
 // -------------------------------------------------------------

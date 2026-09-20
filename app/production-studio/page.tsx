@@ -88,6 +88,7 @@ import {
   setVideoSceneClipCreated,
   getVideoSceneCompletionStorageKey,
   buildVideoScenePlanSignature,
+  buildVideoProductionInputSignature,
 } from '@/lib/video-scene-completion';
 import { resolveSelectedVideoProductionCandidate } from '@/lib/video-canonical-scene-resolver';
 
@@ -4699,7 +4700,16 @@ ${formatDirection}${revisionDirective}`;
     return buildVideoScenePlanSignature(activeVideoCandidate);
   }, [activeVideoCandidate]);
 
-  // Phase 3D-C1C-D: Real Scene Completion State (Persistent, Isolated by Project + Item + Mode + Signature)
+  const currentVideoProductionInputSignature = useMemo<string>(() => {
+    if (!selectedVideoProductionMode) return '';
+    return buildVideoProductionInputSignature({
+      production_mode: selectedVideoProductionMode,
+      character_dna: selectedVideoProductionMode === 'human_led' ? productionEngineContext?.character_dna : null,
+      product_asset_context: selectedVideoProductionMode === 'product_demo' ? productAssetContext : null,
+    });
+  }, [selectedVideoProductionMode, productionEngineContext?.character_dna, productAssetContext]);
+
+  // Phase 3D-C1C-D+: Real Scene Completion State (Persistent, Isolated by Project + Item + Mode + Scene Signature + Input Signature)
   const [videoSceneCompletionState, setVideoSceneCompletionState] =
     useState<VideoSceneCompletionState | null>(null);
 
@@ -4708,7 +4718,8 @@ ${formatDirection}${revisionDirective}`;
       !canonicalProjectId ||
       !activeItem?.content_item_id ||
       !selectedVideoProductionMode ||
-      !currentScenePlanSignature
+      !currentScenePlanSignature ||
+      !currentVideoProductionInputSignature
     ) {
       setVideoSceneCompletionState(null);
       return;
@@ -4724,6 +4735,7 @@ ${formatDirection}${revisionDirective}`;
       content_item_id: activeItem.content_item_id,
       production_mode: selectedVideoProductionMode,
       scene_plan_signature: currentScenePlanSignature,
+      production_input_signature: currentVideoProductionInputSignature,
     };
 
     const validation = validateVideoSceneCompletionState(stored, expected);
@@ -4739,6 +4751,7 @@ ${formatDirection}${revisionDirective}`;
     activeItem?.content_item_id,
     selectedVideoProductionMode,
     currentScenePlanSignature,
+    currentVideoProductionInputSignature,
   ]);
 
   const handleToggleSceneCompletion = (sceneNumber: 1 | 2 | 3, isCompleted: boolean) => {
@@ -4746,7 +4759,8 @@ ${formatDirection}${revisionDirective}`;
       !canonicalProjectId ||
       !activeItem?.content_item_id ||
       !selectedVideoProductionMode ||
-      !currentScenePlanSignature
+      !currentScenePlanSignature ||
+      !currentVideoProductionInputSignature
     ) {
       return;
     }
@@ -4755,6 +4769,7 @@ ${formatDirection}${revisionDirective}`;
       content_item_id: activeItem.content_item_id,
       production_mode: selectedVideoProductionMode,
       scene_plan_signature: currentScenePlanSignature,
+      production_input_signature: currentVideoProductionInputSignature,
     };
 
     const currentState =

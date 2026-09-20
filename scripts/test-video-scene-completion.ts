@@ -14,8 +14,11 @@ import {
   areAllVideoScenesCreated,
   getVideoSceneCompletionStorageKey,
   buildVideoScenePlanSignature,
+  buildVideoProductionInputSignature,
 } from '../lib/video-scene-completion';
 import { VideoProductionCandidate } from '../lib/production-candidate';
+import { CharacterDNA } from '../lib/content-contract';
+import { ProductAssetContext } from '../lib/video-production-input';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -288,17 +291,20 @@ assert(buildVideoScenePlanSignature(mockCandidate4Scenes) === '', '4-scene candi
 
 // TEST 13: Completion state false + null marked_at is valid
 console.log('Running Test 13: Completion state false + null marked_at is valid');
+const defaultMotionInputSig = 'input_sig_motion_explainer_v1';
 const initialState = createEmptyVideoSceneCompletionState({
   project_id: 'proj_alpha',
   content_item_id: 'item_101',
   production_mode: 'motion_explainer',
   scene_plan_signature: sigA,
+  production_input_signature: defaultMotionInputSig,
 });
 const valInit = validateVideoSceneCompletionState(initialState, {
   project_id: 'proj_alpha',
   content_item_id: 'item_101',
   production_mode: 'motion_explainer',
   scene_plan_signature: sigA,
+  production_input_signature: defaultMotionInputSig,
 });
 assert(valInit.isValid === true, 'Initial state with false + null marked_at must be valid');
 
@@ -312,6 +318,7 @@ assert(
     content_item_id: 'item_101',
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
+    production_input_signature: defaultMotionInputSig,
   }).isValid === false,
   'false + undefined marked_at must be invalid'
 );
@@ -326,6 +333,7 @@ assert(
     content_item_id: 'item_101',
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
+    production_input_signature: defaultMotionInputSig,
   }).isValid === false,
   'false + empty string marked_at must be invalid'
 );
@@ -339,6 +347,7 @@ assert(
     content_item_id: 'item_101',
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
+    production_input_signature: defaultMotionInputSig,
   }).isValid === true,
   'true + valid timestamp marked_at must be valid'
 );
@@ -353,6 +362,7 @@ assert(
     content_item_id: 'item_101',
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
+    production_input_signature: defaultMotionInputSig,
   }).isValid === false,
   'true + null marked_at must be invalid'
 );
@@ -367,6 +377,7 @@ assert(
     content_item_id: 'item_101',
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
+    production_input_signature: defaultMotionInputSig,
   }).isValid === false,
   'Empty updated_at must be invalid'
 );
@@ -402,6 +413,7 @@ assert(
     content_item_id: 'item_101',
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
+    production_input_signature: defaultMotionInputSig,
   }).isValid === false,
   'Validation fails for wrong project_id'
 );
@@ -414,6 +426,7 @@ assert(
     content_item_id: 'item_202',
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
+    production_input_signature: defaultMotionInputSig,
   }).isValid === false,
   'Validation fails for wrong content_item_id'
 );
@@ -426,6 +439,7 @@ assert(
     content_item_id: 'item_101',
     production_mode: 'human_led',
     scene_plan_signature: sigA,
+    production_input_signature: defaultMotionInputSig,
   }).isValid === false,
   'Validation fails for wrong production_mode'
 );
@@ -437,6 +451,7 @@ const valSigMismatch = validateVideoSceneCompletionState(stateScene1Done, {
   content_item_id: 'item_101',
   production_mode: 'motion_explainer',
   scene_plan_signature: sigAVisMod,
+  production_input_signature: defaultMotionInputSig,
 });
 assert(valSigMismatch.isValid === false, 'Validation fails when scene_plan_signature mismatches');
 
@@ -458,4 +473,443 @@ assert(
   'Storage key must match exact pattern'
 );
 
-console.log('--- ALL TESTS IN PHASE 3D-C1C-D PASSED PERFECTLY ---');
+// ============================================================================
+// PHASE 3D-C1C-D+: PRODUCTION INPUT BINDING HARDENING TESTS
+// ============================================================================
+console.log('\n--- RUNNING PHASE 3D-C1C-D+ TEST SUITE ---');
+
+// Canonical CharacterDNA Fixture
+const mockCharacterDNA: CharacterDNA = {
+  character_id: 'char_clara_01',
+  project_id: 'proj_alpha',
+  reference_images: ['https://example.com/clara1.png', 'https://example.com/clara2.png'],
+  preview_image: 'https://example.com/clara_preview.png',
+  additional_instructions: 'Keep warm friendly tone',
+  identity: {
+    display_name: 'Clara Digital Marketer',
+    gender_presentation: 'Female',
+    estimated_age_range: '26-32',
+    ethnicity_or_region_hint: 'Southeast Asian',
+    body_type: 'Medium athletic',
+    facial_features: 'Warm smile, friendly eyes',
+    hair_description: 'Dark brown shoulder length',
+    skin_tone: 'Natural light tan',
+    distinctive_characteristics: 'Subtle expressive gestures',
+  },
+  style: {
+    wardrobe_style: 'Modern business casual, smart blazer',
+    accessories: ['Minimalist silver watch', 'Small stud earrings'],
+    makeup_style: 'Natural daytime',
+    visual_vibe: 'Approachable professional',
+    brand_fit_reason: 'Matches relatable educator persona',
+  },
+  behavior: {
+    speaking_tone: 'Encouraging, clear, articulate',
+    expression_style: 'Confident and welcoming',
+    pose_tendency: 'Open posture facing camera',
+    gesture_style: 'Natural hand emphasis',
+    on_camera_persona: 'Knowledgeable peer guide',
+  },
+  consistency_rules: {
+    locked_traits: ['blazer color', 'hair style', 'eye contact'],
+    avoid_traits: ['excessive movement', 'harsh lighting'],
+    continuity_notes: ['maintain consistent background tone'],
+  },
+  prompt_assets: {
+    dna_summary_prompt: 'Clara, a 28yo professional digital marketer in business casual',
+    locked_visual_prompt: 'High fidelity portrait of Clara in studio lighting',
+    preview_generation_prompt: 'Close up photo of Clara smiling at camera',
+    scene_reuse_prompt_template: 'Clara presenting in modern minimalist office setting',
+  },
+  timestamps: {
+    created_at: '2026-09-20T00:00:00.000Z',
+    updated_at: '2026-09-20T00:00:00.000Z',
+  },
+};
+
+// Canonical ProductAssetContext Fixture
+const mockProductAssetContext: ProductAssetContext = {
+  product_name: 'Alco Content Engine',
+  product_type: 'SaaS Web Application',
+  screenshots: [
+    {
+      id: 'screen_dash_01',
+      name: 'Main Analytics Dashboard',
+      kind: 'screenshot',
+    },
+    {
+      id: 'screen_cal_02',
+      name: 'Calendar Schedule View',
+      kind: 'screenshot',
+    },
+  ],
+  feature_focus: ['Automated Content Scheduling', 'One-Click Video Plan'],
+  demo_steps: ['Open Dashboard', 'Select Date', 'Generate Schedule'],
+  logo_reference: {
+    id: 'logo_alco_01',
+    name: 'Alco Official Logo',
+    kind: 'logo',
+  },
+  screen_recording_reference: {
+    id: 'rec_alco_01',
+    name: 'Walkthrough Video Clip',
+    kind: 'screen_recording',
+  },
+};
+
+// TEST 1: human_led valid CharacterDNA produces non-empty production input signature.
+console.log('Running C1C-D+ Test 1: human_led valid CharacterDNA produces non-empty signature');
+const sigHuman = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: mockCharacterDNA,
+});
+assert(
+  typeof sigHuman === 'string' && sigHuman.length > 0 && sigHuman.startsWith('input_sig_human_led'),
+  'C1C-D+ TEST 1: human_led valid CharacterDNA produces non-empty signature'
+);
+
+// TEST 2: Same CharacterDNA produces same signature.
+console.log('Running C1C-D+ Test 2: Same CharacterDNA produces same signature');
+const sigHumanCopy = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: { ...mockCharacterDNA },
+});
+assert(sigHuman === sigHumanCopy, 'C1C-D+ TEST 2: Same CharacterDNA produces same signature');
+
+// TEST 3: Changing character_id changes signature.
+console.log('Running C1C-D+ Test 3: Changing character_id changes signature');
+const sigHumanCharMod = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: { ...mockCharacterDNA, character_id: 'char_clara_02' },
+});
+assert(sigHuman !== sigHumanCharMod, 'C1C-D+ TEST 3: Changing character_id changes signature');
+
+// TEST 4: Changing dna_summary_prompt changes signature.
+console.log('Running C1C-D+ Test 4: Changing dna_summary_prompt changes signature');
+const sigHumanSummaryMod = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: {
+    ...mockCharacterDNA,
+    prompt_assets: {
+      ...mockCharacterDNA.prompt_assets,
+      dna_summary_prompt: 'Modified summary prompt for Clara',
+    },
+  },
+});
+assert(sigHuman !== sigHumanSummaryMod, 'C1C-D+ TEST 4: Changing dna_summary_prompt changes signature');
+
+// TEST 5: Changing locked_visual_prompt changes signature.
+console.log('Running C1C-D+ Test 5: Changing locked_visual_prompt changes signature');
+const sigHumanVisualMod = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: {
+    ...mockCharacterDNA,
+    prompt_assets: {
+      ...mockCharacterDNA.prompt_assets,
+      locked_visual_prompt: 'Modified locked visual prompt for Clara',
+    },
+  },
+});
+assert(sigHuman !== sigHumanVisualMod, 'C1C-D+ TEST 5: Changing locked_visual_prompt changes signature');
+
+// TEST 6: Changing reference_images changes signature.
+console.log('Running C1C-D+ Test 6: Changing reference_images changes signature');
+const sigHumanRefMod = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: {
+    ...mockCharacterDNA,
+    reference_images: ['https://example.com/clara_different.png'],
+  },
+});
+assert(sigHuman !== sigHumanRefMod, 'C1C-D+ TEST 6: Changing reference_images changes signature');
+
+// TEST 7: Changing timestamps.updated_at only does NOT change signature.
+console.log('Running C1C-D+ Test 7: Changing timestamps.updated_at only does NOT change signature');
+const sigHumanTimeMod = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: {
+    ...mockCharacterDNA,
+    timestamps: {
+      ...mockCharacterDNA.timestamps,
+      updated_at: '2026-09-20T12:34:56.789Z',
+    },
+  },
+});
+assert(sigHuman === sigHumanTimeMod, 'C1C-D+ TEST 7: Changing timestamps.updated_at only does NOT change signature');
+
+// TEST 8: human_led without CharacterDNA returns ''.
+console.log('Running C1C-D+ Test 8: human_led without CharacterDNA returns empty string');
+assert(
+  buildVideoProductionInputSignature({
+    production_mode: 'human_led',
+    character_dna: null,
+  }) === '',
+  'C1C-D+ TEST 8: human_led without CharacterDNA returns empty string'
+);
+
+// TEST 9: human_led with invalid CharacterDNA returns ''.
+console.log('Running C1C-D+ Test 9: human_led with invalid CharacterDNA returns empty string');
+const invalidDna: CharacterDNA = {
+  ...mockCharacterDNA,
+  character_id: '   ',
+};
+assert(
+  buildVideoProductionInputSignature({
+    production_mode: 'human_led',
+    character_dna: invalidDna,
+  }) === '',
+  'C1C-D+ TEST 9: human_led with invalid CharacterDNA returns empty string'
+);
+
+// TEST 10: product_demo valid ProductAssetContext returns non-empty signature.
+console.log('Running C1C-D+ Test 10: product_demo valid ProductAssetContext returns non-empty signature');
+const sigProd = buildVideoProductionInputSignature({
+  production_mode: 'product_demo',
+  product_asset_context: mockProductAssetContext,
+});
+assert(
+  typeof sigProd === 'string' && sigProd.length > 0 && sigProd.startsWith('input_sig_product_demo'),
+  'C1C-D+ TEST 10: product_demo valid ProductAssetContext returns non-empty signature'
+);
+
+// TEST 11: Changing product_name changes signature.
+console.log('Running C1C-D+ Test 11: Changing product_name changes signature');
+const sigProdNameMod = buildVideoProductionInputSignature({
+  production_mode: 'product_demo',
+  product_asset_context: {
+    ...mockProductAssetContext,
+    product_name: 'Alco Growth Engine V2',
+  },
+});
+assert(sigProd !== sigProdNameMod, 'C1C-D+ TEST 11: Changing product_name changes signature');
+
+// TEST 12: Changing screenshot id changes signature.
+console.log('Running C1C-D+ Test 12: Changing screenshot id changes signature');
+const sigProdScreenIdMod = buildVideoProductionInputSignature({
+  production_mode: 'product_demo',
+  product_asset_context: {
+    ...mockProductAssetContext,
+    screenshots: [
+      { id: 'screen_dash_999', name: 'Main Analytics Dashboard', kind: 'screenshot' },
+      mockProductAssetContext.screenshots[1],
+    ],
+  },
+});
+assert(sigProd !== sigProdScreenIdMod, 'C1C-D+ TEST 12: Changing screenshot id changes signature');
+
+// TEST 13: Changing screenshot name changes signature.
+console.log('Running C1C-D+ Test 13: Changing screenshot name changes signature');
+const sigProdScreenNameMod = buildVideoProductionInputSignature({
+  production_mode: 'product_demo',
+  product_asset_context: {
+    ...mockProductAssetContext,
+    screenshots: [
+      { id: 'screen_dash_01', name: 'Renamed Analytics View', kind: 'screenshot' },
+      mockProductAssetContext.screenshots[1],
+    ],
+  },
+});
+assert(sigProd !== sigProdScreenNameMod, 'C1C-D+ TEST 13: Changing screenshot name changes signature');
+
+// TEST 14: Changing feature_focus changes signature.
+console.log('Running C1C-D+ Test 14: Changing feature_focus changes signature');
+const sigProdFeatureMod = buildVideoProductionInputSignature({
+  production_mode: 'product_demo',
+  product_asset_context: {
+    ...mockProductAssetContext,
+    feature_focus: ['Completely Different Feature'],
+  },
+});
+assert(sigProd !== sigProdFeatureMod, 'C1C-D+ TEST 14: Changing feature_focus changes signature');
+
+// TEST 15: Changing demo_steps changes signature.
+console.log('Running C1C-D+ Test 15: Changing demo_steps changes signature');
+const sigProdDemoStepsMod = buildVideoProductionInputSignature({
+  production_mode: 'product_demo',
+  product_asset_context: {
+    ...mockProductAssetContext,
+    demo_steps: ['Step 1', 'Step 2', 'Step 3 - Modified'],
+  },
+});
+assert(sigProd !== sigProdDemoStepsMod, 'C1C-D+ TEST 15: Changing demo_steps changes signature');
+
+// TEST 16: product_demo missing product_name returns ''.
+console.log('Running C1C-D+ Test 16: product_demo missing product_name returns empty string');
+const prodMissingName: ProductAssetContext = {
+  ...mockProductAssetContext,
+  product_name: '   ',
+};
+assert(
+  buildVideoProductionInputSignature({
+    production_mode: 'product_demo',
+    product_asset_context: prodMissingName,
+  }) === '',
+  'C1C-D+ TEST 16: product_demo missing product_name returns empty string'
+);
+
+// TEST 17: product_demo without valid screenshots returns ''.
+console.log('Running C1C-D+ Test 17: product_demo without valid screenshots returns empty string');
+const prodEmptyScreens: ProductAssetContext = {
+  ...mockProductAssetContext,
+  screenshots: [],
+};
+assert(
+  buildVideoProductionInputSignature({
+    production_mode: 'product_demo',
+    product_asset_context: prodEmptyScreens,
+  }) === '',
+  'C1C-D+ TEST 17: product_demo without valid screenshots returns empty string'
+);
+
+// TEST 18: motion_explainer returns deterministic non-empty signature.
+console.log('Running C1C-D+ Test 18: motion_explainer returns deterministic constant signature');
+const sigMotion = buildVideoProductionInputSignature({
+  production_mode: 'motion_explainer',
+});
+assert(
+  typeof sigMotion === 'string' && sigMotion === 'input_sig_motion_explainer_v1',
+  'C1C-D+ TEST 18: motion_explainer returns deterministic constant signature'
+);
+
+// TEST 19: motion signature does not change when CharacterDNA changes.
+console.log('Running C1C-D+ Test 19: motion signature does not change when CharacterDNA changes');
+const sigMotionWithChar = buildVideoProductionInputSignature({
+  production_mode: 'motion_explainer',
+  character_dna: mockCharacterDNA,
+});
+assert(
+  sigMotion === sigMotionWithChar,
+  'C1C-D+ TEST 19: motion signature does not change when CharacterDNA changes'
+);
+
+// TEST 20: motion signature does not change when ProductAssetContext changes.
+console.log('Running C1C-D+ Test 20: motion signature does not change when ProductAssetContext changes');
+const sigMotionWithProd = buildVideoProductionInputSignature({
+  production_mode: 'motion_explainer',
+  product_asset_context: mockProductAssetContext,
+});
+assert(
+  sigMotion === sigMotionWithProd,
+  'C1C-D+ TEST 20: motion signature does not change when ProductAssetContext changes'
+);
+
+// TEST 21: Completion validation fails when stored production_input_signature does not match expected signature.
+console.log('Running C1C-D+ Test 21: Validation fails on production_input_signature mismatch');
+const stateHuman = createEmptyVideoSceneCompletionState({
+  project_id: 'proj_alpha',
+  content_item_id: 'item_101',
+  production_mode: 'human_led',
+  scene_plan_signature: sigA,
+  production_input_signature: sigHuman,
+});
+const valInputSigMismatch = validateVideoSceneCompletionState(stateHuman, {
+  project_id: 'proj_alpha',
+  content_item_id: 'item_101',
+  production_mode: 'human_led',
+  scene_plan_signature: sigA,
+  production_input_signature: sigHumanCharMod,
+});
+assert(
+  valInputSigMismatch.isValid === false,
+  'C1C-D+ TEST 21: Completion validation fails when stored production_input_signature does not match expected signature'
+);
+
+// TEST 22: Completion validation fails when production_input_signature missing.
+console.log('Running C1C-D+ Test 22: Validation fails when production_input_signature missing');
+const stateMissingInputSig = JSON.parse(JSON.stringify(stateHuman));
+delete stateMissingInputSig.production_input_signature;
+assert(
+  validateVideoSceneCompletionState(stateMissingInputSig, {
+    project_id: 'proj_alpha',
+    content_item_id: 'item_101',
+    production_mode: 'human_led',
+    scene_plan_signature: sigA,
+    production_input_signature: sigHuman,
+  }).isValid === false,
+  'C1C-D+ TEST 22: Completion validation fails when production_input_signature missing'
+);
+
+// TEST 23: Completion validation fails when production_input_signature empty.
+console.log('Running C1C-D+ Test 23: Validation fails when production_input_signature empty');
+const stateEmptyInputSig = JSON.parse(JSON.stringify(stateHuman));
+stateEmptyInputSig.production_input_signature = '   ';
+assert(
+  validateVideoSceneCompletionState(stateEmptyInputSig, {
+    project_id: 'proj_alpha',
+    content_item_id: 'item_101',
+    production_mode: 'human_led',
+    scene_plan_signature: sigA,
+    production_input_signature: sigHuman,
+  }).isValid === false,
+  'C1C-D+ TEST 23: Completion validation fails when production_input_signature empty'
+);
+
+// TEST 24: Completion remains valid when scene signature AND production input signature both match.
+console.log('Running C1C-D+ Test 24: Completion remains valid when both signatures match');
+assert(
+  validateVideoSceneCompletionState(stateHuman, {
+    project_id: 'proj_alpha',
+    content_item_id: 'item_101',
+    production_mode: 'human_led',
+    scene_plan_signature: sigA,
+    production_input_signature: sigHuman,
+  }).isValid === true,
+  'C1C-D+ TEST 24: Completion remains valid when scene signature AND production input signature both match'
+);
+
+// TEST 25: Character change makes previous human completion state invalid.
+console.log('Running C1C-D+ Test 25: Character change makes previous human completion state invalid');
+const humanCompleted = setVideoSceneClipCreated(
+  setVideoSceneClipCreated(
+    setVideoSceneClipCreated(stateHuman, 1, true),
+    2,
+    true
+  ),
+  3,
+  true
+);
+const newExpectedHuman = {
+  project_id: 'proj_alpha',
+  content_item_id: 'item_101',
+  production_mode: 'human_led' as const,
+  scene_plan_signature: sigA,
+  production_input_signature: sigHumanCharMod,
+};
+assert(
+  validateVideoSceneCompletionState(humanCompleted, newExpectedHuman).isValid === false,
+  'C1C-D+ TEST 25: Character change makes previous human completion state invalid'
+);
+
+// TEST 26: Product screenshot change makes previous product completion invalid.
+console.log('Running C1C-D+ Test 26: Product screenshot change makes previous product completion invalid');
+const stateProdCompleted = createEmptyVideoSceneCompletionState({
+  project_id: 'proj_alpha',
+  content_item_id: 'item_101',
+  production_mode: 'product_demo',
+  scene_plan_signature: sigA,
+  production_input_signature: sigProd,
+});
+const prodAll3Done = setVideoSceneClipCreated(
+  setVideoSceneClipCreated(
+    setVideoSceneClipCreated(stateProdCompleted, 1, true),
+    2,
+    true
+  ),
+  3,
+  true
+);
+assert(areAllVideoScenesCreated(prodAll3Done) === true, 'All 3 product scenes completed');
+
+const newExpectedProd = {
+  project_id: 'proj_alpha',
+  content_item_id: 'item_101',
+  production_mode: 'product_demo' as const,
+  scene_plan_signature: sigA,
+  production_input_signature: sigProdScreenIdMod,
+};
+assert(
+  validateVideoSceneCompletionState(prodAll3Done, newExpectedProd).isValid === false,
+  'C1C-D+ TEST 26: Product screenshot change makes previous product completion invalid'
+);
+
+console.log('--- ALL TESTS IN PHASE 3D-C1C-D & PHASE 3D-C1C-D+ PASSED PERFECTLY ---');

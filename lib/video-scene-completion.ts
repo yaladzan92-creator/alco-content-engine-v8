@@ -1,5 +1,7 @@
 import { VideoProductionMode, VideoSceneProductionPlan } from './production-contract';
 import { VideoProductionCandidate } from './production-candidate';
+import { CharacterDNA } from './content-contract';
+import { ProductAssetContext, ProductAssetReference } from './video-production-input';
 
 // ============================================================================
 // PHASE 3D-C1C-D: REAL SCENE COMPLETION CONTRACT
@@ -18,6 +20,7 @@ export interface VideoSceneCompletionState {
   content_item_id: string;
   production_mode: VideoProductionMode;
   scene_plan_signature: string;
+  production_input_signature: string;
   scenes: [
     VideoSceneCompletionEntry,
     VideoSceneCompletionEntry,
@@ -39,6 +42,242 @@ export function getVideoSceneCompletionStorageKey(
   production_mode: VideoProductionMode
 ): string {
   return `studio_video_scene_completion_${content_item_id}_${production_mode}`;
+}
+
+export interface VideoProductionInputSignatureParams {
+  production_mode: VideoProductionMode;
+  character_dna?: CharacterDNA | null;
+  product_asset_context?: ProductAssetContext | null;
+}
+
+/**
+ * Builds a deterministic pure signature from mode-specific production inputs.
+ * Used exclusively to bind scene completion to external clip creation assets
+ * (such as CharacterDNA for human_led or ProductAssetContext for product_demo).
+ *
+ * Fails closed (returns '') if required mode-specific input is missing or invalid.
+ * Does NOT include timestamps or temporary binary state (Blobs, Files, object URLs).
+ */
+export function buildVideoProductionInputSignature(
+  params: VideoProductionInputSignatureParams
+): string {
+  if (!params || typeof params !== 'object') return '';
+
+  const { production_mode, character_dna, product_asset_context } = params;
+
+  if (production_mode === 'human_led') {
+    if (!character_dna || typeof character_dna !== 'object') return '';
+
+    // Validate required fields
+    if (
+      typeof character_dna.character_id !== 'string' ||
+      character_dna.character_id.trim().length === 0
+    ) {
+      return '';
+    }
+    if (
+      typeof character_dna.project_id !== 'string' ||
+      character_dna.project_id.trim().length === 0
+    ) {
+      return '';
+    }
+
+    if (!character_dna.prompt_assets || typeof character_dna.prompt_assets !== 'object') {
+      return '';
+    }
+    if (
+      typeof character_dna.prompt_assets.dna_summary_prompt !== 'string' ||
+      typeof character_dna.prompt_assets.locked_visual_prompt !== 'string' ||
+      typeof character_dna.prompt_assets.scene_reuse_prompt_template !== 'string'
+    ) {
+      return '';
+    }
+
+    if (!Array.isArray(character_dna.reference_images)) return '';
+    for (const ref of character_dna.reference_images) {
+      if (typeof ref !== 'string') return '';
+    }
+
+    if (!character_dna.identity || typeof character_dna.identity !== 'object') return '';
+    if (!character_dna.style || typeof character_dna.style !== 'object') return '';
+    if (!character_dna.behavior || typeof character_dna.behavior !== 'object') return '';
+    if (!character_dna.consistency_rules || typeof character_dna.consistency_rules !== 'object') return '';
+
+    // Deterministic serialization without timestamps
+    const refImages = [...character_dna.reference_images].sort().join(',');
+
+    const identityParts = [
+      `name:${character_dna.identity.display_name || ''}`,
+      `gender:${character_dna.identity.gender_presentation || ''}`,
+      `age:${character_dna.identity.estimated_age_range || ''}`,
+      `region:${character_dna.identity.ethnicity_or_region_hint || ''}`,
+      `body:${character_dna.identity.body_type || ''}`,
+      `face:${character_dna.identity.facial_features || ''}`,
+      `hair:${character_dna.identity.hair_description || ''}`,
+      `skin:${character_dna.identity.skin_tone || ''}`,
+      `distinct:${character_dna.identity.distinctive_characteristics || ''}`,
+    ].join('|');
+
+    const accessories = Array.isArray(character_dna.style.accessories)
+      ? [...character_dna.style.accessories].sort().join(',')
+      : '';
+    const styleParts = [
+      `wardrobe:${character_dna.style.wardrobe_style || ''}`,
+      `acc:${accessories}`,
+      `makeup:${character_dna.style.makeup_style || ''}`,
+      `vibe:${character_dna.style.visual_vibe || ''}`,
+      `brandfit:${character_dna.style.brand_fit_reason || ''}`,
+    ].join('|');
+
+    const behaviorParts = [
+      `tone:${character_dna.behavior.speaking_tone || ''}`,
+      `expr:${character_dna.behavior.expression_style || ''}`,
+      `pose:${character_dna.behavior.pose_tendency || ''}`,
+      `gesture:${character_dna.behavior.gesture_style || ''}`,
+      `persona:${character_dna.behavior.on_camera_persona || ''}`,
+    ].join('|');
+
+    const lockedTraits = Array.isArray(character_dna.consistency_rules.locked_traits)
+      ? [...character_dna.consistency_rules.locked_traits].sort().join(',')
+      : '';
+    const avoidTraits = Array.isArray(character_dna.consistency_rules.avoid_traits)
+      ? [...character_dna.consistency_rules.avoid_traits].sort().join(',')
+      : '';
+    const continuityNotes = Array.isArray(character_dna.consistency_rules.continuity_notes)
+      ? [...character_dna.consistency_rules.continuity_notes].sort().join(',')
+      : '';
+    const consistencyParts = [
+      `locked:${lockedTraits}`,
+      `avoid:${avoidTraits}`,
+      `notes:${continuityNotes}`,
+    ].join('|');
+
+    const promptParts = [
+      `dna_summary:${character_dna.prompt_assets.dna_summary_prompt}`,
+      `locked_vis:${character_dna.prompt_assets.locked_visual_prompt}`,
+      `reuse_tpl:${character_dna.prompt_assets.scene_reuse_prompt_template}`,
+    ].join('|');
+
+    const addl = typeof character_dna.additional_instructions === 'string'
+      ? character_dna.additional_instructions
+      : '';
+    const preview = typeof character_dna.preview_image === 'string'
+      ? character_dna.preview_image
+      : '';
+
+    return [
+      'input_sig_human_led',
+      `char_id:${character_dna.character_id.trim()}`,
+      `proj_id:${character_dna.project_id.trim()}`,
+      `ref_img:${refImages}`,
+      `preview:${preview}`,
+      `addl:${addl}`,
+      `identity:${identityParts}`,
+      `style:${styleParts}`,
+      `behavior:${behaviorParts}`,
+      `consistency:${consistencyParts}`,
+      `prompts:${promptParts}`,
+    ].join('##');
+  }
+
+  if (production_mode === 'product_demo') {
+    if (!product_asset_context || typeof product_asset_context !== 'object') return '';
+
+    const prodName = product_asset_context.product_name;
+    if (typeof prodName !== 'string' || prodName.trim().length === 0) {
+      return '';
+    }
+
+    const screenshots = product_asset_context.screenshots;
+    if (!Array.isArray(screenshots) || screenshots.length === 0) {
+      return '';
+    }
+
+    const validScreenshots: ProductAssetReference[] = [];
+    for (const item of screenshots) {
+      if (
+        !item ||
+        typeof item !== 'object' ||
+        typeof item.id !== 'string' ||
+        item.id.trim().length === 0 ||
+        typeof item.name !== 'string' ||
+        item.name.trim().length === 0 ||
+        item.kind !== 'screenshot'
+      ) {
+        return '';
+      }
+      validScreenshots.push(item);
+    }
+
+    if (validScreenshots.length === 0) return '';
+
+    // Deterministic sort of screenshots by id then name
+    const sortedScreenshots = [...validScreenshots]
+      .sort((a, b) => a.id.localeCompare(b.id) || a.name.localeCompare(b.name))
+      .map((s) => `${s.id}::${s.name}::${s.kind}`)
+      .join(',');
+
+    const featureFocus = Array.isArray(product_asset_context.feature_focus)
+      ? [...product_asset_context.feature_focus].sort().join(',')
+      : '';
+
+    const demoSteps = Array.isArray(product_asset_context.demo_steps)
+      ? product_asset_context.demo_steps.join('->')
+      : '';
+
+    let logoPart = 'none';
+    if (product_asset_context.logo_reference) {
+      const logo = product_asset_context.logo_reference;
+      if (
+        typeof logo.id === 'string' &&
+        logo.id.trim().length > 0 &&
+        typeof logo.name === 'string' &&
+        logo.name.trim().length > 0 &&
+        logo.kind === 'logo'
+      ) {
+        logoPart = `${logo.id}::${logo.name}::${logo.kind}`;
+      } else {
+        return '';
+      }
+    }
+
+    let screenRecPart = 'none';
+    if (product_asset_context.screen_recording_reference) {
+      const rec = product_asset_context.screen_recording_reference;
+      if (
+        typeof rec.id === 'string' &&
+        rec.id.trim().length > 0 &&
+        typeof rec.name === 'string' &&
+        rec.name.trim().length > 0 &&
+        rec.kind === 'screen_recording'
+      ) {
+        screenRecPart = `${rec.id}::${rec.name}::${rec.kind}`;
+      } else {
+        return '';
+      }
+    }
+
+    const prodType = typeof product_asset_context.product_type === 'string'
+      ? product_asset_context.product_type
+      : '';
+
+    return [
+      'input_sig_product_demo',
+      `prod_name:${prodName.trim()}`,
+      `prod_type:${prodType.trim()}`,
+      `screenshots:${sortedScreenshots}`,
+      `features:${featureFocus}`,
+      `steps:${demoSteps}`,
+      `logo:${logoPart}`,
+      `screen_rec:${screenRecPart}`,
+    ].join('##');
+  }
+
+  if (production_mode === 'motion_explainer') {
+    return 'input_sig_motion_explainer_v1';
+  }
+
+  return '';
 }
 
 /**
@@ -131,12 +370,21 @@ export function createEmptyVideoSceneCompletionState(params: {
   content_item_id: string;
   production_mode: VideoProductionMode;
   scene_plan_signature: string;
+  production_input_signature: string;
 }): VideoSceneCompletionState {
+  if (
+    typeof params.production_input_signature !== 'string' ||
+    params.production_input_signature.trim().length === 0
+  ) {
+    throw new Error('createEmptyVideoSceneCompletionState requires a non-empty production_input_signature');
+  }
+
   return {
     project_id: params.project_id,
     content_item_id: params.content_item_id,
     production_mode: params.production_mode,
     scene_plan_signature: params.scene_plan_signature,
+    production_input_signature: params.production_input_signature,
     scenes: [
       { scene_number: 1, clip_created: false, marked_at: null },
       { scene_number: 2, clip_created: false, marked_at: null },
@@ -147,7 +395,7 @@ export function createEmptyVideoSceneCompletionState(params: {
 }
 
 /**
- * Validates persisted VideoSceneCompletionState against expected project, item, mode, and signature.
+ * Validates persisted VideoSceneCompletionState against expected project, item, mode, scene signature, and production input signature.
  * Fails closed on any corruption, missing scenes, duplicate scene numbers, or signature mismatch.
  */
 export function validateVideoSceneCompletionState(
@@ -157,6 +405,7 @@ export function validateVideoSceneCompletionState(
     content_item_id: string;
     production_mode: VideoProductionMode;
     scene_plan_signature: string;
+    production_input_signature: string;
   }
 ): VideoSceneCompletionValidationResult {
   if (!state || typeof state !== 'object') {
@@ -205,6 +454,23 @@ export function validateVideoSceneCompletionState(
     return {
       isValid: false,
       error: `Scene plan signature mismatch or missing: expected "${expected.scene_plan_signature}", found "${typed.scene_plan_signature}"`,
+    };
+  }
+
+  if (
+    typeof typed.production_input_signature !== 'string' ||
+    typed.production_input_signature.trim().length === 0
+  ) {
+    return {
+      isValid: false,
+      error: 'production_input_signature missing or empty in completion state',
+    };
+  }
+
+  if (typed.production_input_signature !== expected.production_input_signature) {
+    return {
+      isValid: false,
+      error: `Production input signature mismatch: expected "${expected.production_input_signature}", found "${typed.production_input_signature}"`,
     };
   }
 
