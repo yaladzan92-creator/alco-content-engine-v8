@@ -23,6 +23,8 @@ import {
 } from '@/lib/production-context';
 import { resolveProductionContentItemTarget, buildProductionEngineContext, ProductionEngineContext } from '@/lib/production-engine-context';
 import { resolveVideoIntent, VideoIntentDecision, getVideoProductionModeLabel, getVideoModeOverrideKey } from '@/lib/video-intent-resolver';
+import { resolveVideoProductionReadiness, VideoProductionReadiness } from '@/lib/video-production-readiness';
+import { ProductAssetContext } from '@/lib/video-production-input';
 import { FunnelStrategy } from '@/lib/funnel-strategy';
 import {
   ImageProductionCandidate,
@@ -3329,6 +3331,18 @@ export default function ProductionStudioPage() {
     }
   }, [canonicalProjectId, sourceItem, recommendedVideoProductionMode, userSelectedVideoModeByItem]);
 
+  // Product Asset Context & Video Production Readiness (Phase 3D-C1C-A)
+  const [productAssetContext, setProductAssetContext] = useState<ProductAssetContext | null>(null);
+
+  const videoProductionReadiness = useMemo<VideoProductionReadiness | null>(() => {
+    if (!productionEngineContext) return null;
+    return resolveVideoProductionReadiness({
+      productionContext: productionEngineContext,
+      selectedMode: selectedVideoProductionMode,
+      productAssetContext,
+    });
+  }, [productionEngineContext, selectedVideoProductionMode, productAssetContext]);
+
   // Video Mode state
   const [flowCustomCreator, setFlowCustomCreator] = useState<string>('');
   const [flowCustomSetting, setFlowCustomSetting] = useState<string>('');
@@ -4634,7 +4648,8 @@ ${formatDirection}${revisionDirective}`;
       ugcOutput, sourceItem,
       handleDownloadImage, imageGenerateError,
       characterDNA, getGoogleFlowVideoPack, setActiveTab,
-      savedCharacters, selectedCharacterId, handleSelectCharacter, handleCreateCharacterClick
+      savedCharacters, selectedCharacterId, handleSelectCharacter, handleCreateCharacterClick,
+      productAssetContext, setProductAssetContext, videoProductionReadiness,
     };
 
     if (activeTab === 'image') return <ImagePanel {...commonProps} />;

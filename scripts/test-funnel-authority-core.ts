@@ -85,6 +85,13 @@ import {
   getVideoModeOverrideKey,
   VideoIntentDecision,
 } from '../lib/video-intent-resolver';
+import {
+  resolveVideoProductionReadiness,
+  isValidProductScreenshotReference,
+  isUsableCharacterDNA,
+  VideoProductionReadiness,
+} from '../lib/video-production-readiness';
+import { ProductAssetContext, ProductAssetReference } from '../lib/video-production-input';
 
 const projectRoot = process.cwd();
 const errors: string[] = [];
@@ -5270,6 +5277,316 @@ assert(
   decisionCase10.recommended_mode === 'product_demo',
   'Test 3D-C1B-CASE-10: Combined framework + explicit UI action opening app resolves to product_demo (execution precedence)'
 );
+
+// =============================================================
+// PHASE 3D-C1C-A: CANONICAL VIDEO PRODUCTION READINESS TESTS
+// =============================================================
+
+// Fixtures for C1C-A testing
+const validCharacterDNASaaS: CharacterDNA = {
+  character_id: 'char_saas_001',
+  project_id: 'proj_saas_123',
+  reference_images: [],
+  identity: {
+    display_name: 'Maya Marketing Lead',
+    gender_presentation: 'woman',
+    estimated_age_range: '28',
+  },
+  style: {
+    wardrobe_style: 'smart casual blazer',
+  },
+  behavior: {
+    speaking_tone: 'confident, helpful',
+  },
+  consistency_rules: {
+    locked_traits: ['blazer', 'friendly smile'],
+    avoid_traits: [],
+  },
+  prompt_assets: {
+    dna_summary_prompt: 'Indonesian woman, 28 years old, professional marketing lead with warm approachable demeanor',
+    locked_visual_prompt: 'Indonesian woman, professional office lighting, navy blazer',
+    preview_generation_prompt: 'Portrait of Maya',
+    scene_reuse_prompt_template: 'Maya in modern office',
+  },
+  timestamps: {
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+};
+
+const foreignCharacterDNA: CharacterDNA = {
+  ...validCharacterDNASaaS,
+  character_id: 'char_foreign_999',
+  project_id: 'proj_other_999',
+};
+
+const emptyIdCharacterDNA: CharacterDNA = {
+  ...validCharacterDNASaaS,
+  character_id: '',
+};
+
+const missingPromptCharacterDNA: CharacterDNA = {
+  ...validCharacterDNASaaS,
+  prompt_assets: {
+    dna_summary_prompt: '',
+    locked_visual_prompt: '',
+    preview_generation_prompt: '',
+    scene_reuse_prompt_template: '',
+  },
+};
+
+const ctxWithChar = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case1Item, validCharacterDNASaaS);
+assert(ctxWithChar.isValid && !!ctxWithChar.context, 'C1C-A: Context with valid CharacterDNA built');
+
+const ctxWithoutChar = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case1Item);
+assert(ctxWithoutChar.isValid && !!ctxWithoutChar.context, 'C1C-A: Context without CharacterDNA built');
+
+// TEST 1 — human_led with valid same-project CharacterDNA -> READY
+const resC1CA1 = resolveVideoProductionReadiness({
+  productionContext: ctxWithChar.context!,
+  selectedMode: 'human_led',
+});
+assert(
+  resC1CA1.mode === 'human_led' && resC1CA1.is_ready === true && resC1CA1.missing_required_inputs.length === 0,
+  'C1C-A TEST 1: human_led with valid same-project CharacterDNA is READY'
+);
+
+// TEST 2 — human_led with CharacterDNA = null -> NOT READY, missing 'character'
+const resC1CA2 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'human_led',
+});
+assert(
+  resC1CA2.mode === 'human_led' && resC1CA2.is_ready === false && resC1CA2.missing_required_inputs.includes('character'),
+  'C1C-A TEST 2: human_led without CharacterDNA is NOT READY (missing character)'
+);
+
+// TEST 3 — human_led with foreign project CharacterDNA -> NOT READY (project isolation)
+const ctxWithForeignChar: ProductionEngineContext = {
+  ...ctxWithoutChar.context!,
+  character_dna: foreignCharacterDNA,
+};
+const resC1CA3 = resolveVideoProductionReadiness({
+  productionContext: ctxWithForeignChar,
+  selectedMode: 'human_led',
+});
+assert(
+  resC1CA3.is_ready === false && resC1CA3.missing_required_inputs.includes('character'),
+  'C1C-A TEST 3: human_led with foreign project CharacterDNA is NOT READY (Project Isolation)'
+);
+
+// TEST 4 — human_led with CharacterDNA exists but character_id empty -> NOT READY
+const ctxWithEmptyCharId: ProductionEngineContext = {
+  ...ctxWithoutChar.context!,
+  character_dna: emptyIdCharacterDNA,
+};
+const resC1CA4 = resolveVideoProductionReadiness({
+  productionContext: ctxWithEmptyCharId,
+  selectedMode: 'human_led',
+});
+assert(
+  resC1CA4.is_ready === false && resC1CA4.missing_required_inputs.includes('character'),
+  'C1C-A TEST 4: human_led with empty character_id is NOT READY'
+);
+
+// TEST 5 — human_led with CharacterDNA exists but usable prompt identity missing -> NOT READY
+const ctxWithMissingPrompt: ProductionEngineContext = {
+  ...ctxWithoutChar.context!,
+  character_dna: missingPromptCharacterDNA,
+};
+const resC1CA5 = resolveVideoProductionReadiness({
+  productionContext: ctxWithMissingPrompt,
+  selectedMode: 'human_led',
+});
+assert(
+  resC1CA5.is_ready === false && resC1CA5.missing_required_inputs.includes('character'),
+  'C1C-A TEST 5: human_led with missing prompt assets is NOT READY'
+);
+
+// TEST 6 — product_demo with ProductAssetContext = null -> NOT READY (missing product_name and product_screenshot)
+const resC1CA6 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'product_demo',
+  productAssetContext: null,
+});
+assert(
+  resC1CA6.mode === 'product_demo' &&
+  resC1CA6.is_ready === false &&
+  resC1CA6.missing_required_inputs.includes('product_name') &&
+  resC1CA6.missing_required_inputs.includes('product_screenshot'),
+  'C1C-A TEST 6: product_demo without ProductAssetContext is NOT READY'
+);
+
+// TEST 7 — product_demo with product_name: "ALCO", screenshots: [] -> NOT READY, missing product_screenshot
+const resC1CA7 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'product_demo',
+  productAssetContext: {
+    product_name: 'ALCO',
+    product_type: 'Software',
+    screenshots: [],
+    feature_focus: [],
+    demo_steps: [],
+  },
+});
+assert(
+  resC1CA7.is_ready === false &&
+  resC1CA7.missing_required_inputs.includes('product_screenshot') &&
+  !resC1CA7.missing_required_inputs.includes('product_name'),
+  'C1C-A TEST 7: product_demo with empty screenshots is NOT READY'
+);
+
+// TEST 8 — product_demo with product_name: "", screenshots: [validScreenshot] -> NOT READY, missing product_name
+const validScreenshotRef: ProductAssetReference = {
+  id: 'screen_01',
+  name: 'Dashboard Analytics',
+  kind: 'screenshot',
+};
+const resC1CA8 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'product_demo',
+  productAssetContext: {
+    product_name: '',
+    product_type: 'Software',
+    screenshots: [validScreenshotRef],
+    feature_focus: [],
+    demo_steps: [],
+  },
+});
+assert(
+  resC1CA8.is_ready === false &&
+  resC1CA8.missing_required_inputs.includes('product_name') &&
+  !resC1CA8.missing_required_inputs.includes('product_screenshot'),
+  'C1C-A TEST 8: product_demo with empty product_name is NOT READY'
+);
+
+// TEST 9 — product_demo with product_name: "ALCO", screenshots: [validScreenshot] -> READY
+const resC1CA9 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'product_demo',
+  productAssetContext: {
+    product_name: 'ALCO',
+    product_type: 'Software',
+    screenshots: [validScreenshotRef],
+    feature_focus: ['Analytics'],
+    demo_steps: ['Open App'],
+  },
+});
+assert(
+  resC1CA9.is_ready === true && resC1CA9.missing_required_inputs.length === 0,
+  'C1C-A TEST 9: product_demo with name and valid screenshot is READY'
+);
+
+// TEST 10 — product_demo with screenshots containing only kind: 'logo' -> NOT READY
+const logoAssetRef: ProductAssetReference = {
+  id: 'logo_01',
+  name: 'Company Logo',
+  kind: 'logo',
+};
+const resC1CA10 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'product_demo',
+  productAssetContext: {
+    product_name: 'ALCO',
+    product_type: 'Software',
+    screenshots: [logoAssetRef],
+    feature_focus: [],
+    demo_steps: [],
+  },
+});
+assert(
+  resC1CA10.is_ready === false && resC1CA10.missing_required_inputs.includes('product_screenshot'),
+  'C1C-A TEST 10: logo kind cannot substitute for required screenshot'
+);
+
+// TEST 11 — product_demo with malformed screenshot reference (empty id or empty name) -> NOT READY
+const malformedScreenshot1: ProductAssetReference = {
+  id: '',
+  name: 'Dashboard',
+  kind: 'screenshot',
+};
+const malformedScreenshot2: ProductAssetReference = {
+  id: 'sc_02',
+  name: '  ',
+  kind: 'screenshot',
+};
+const resC1CA11 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'product_demo',
+  productAssetContext: {
+    product_name: 'ALCO',
+    product_type: 'Software',
+    screenshots: [malformedScreenshot1, malformedScreenshot2],
+    feature_focus: [],
+    demo_steps: [],
+  },
+});
+assert(
+  resC1CA11.is_ready === false && resC1CA11.missing_required_inputs.includes('product_screenshot'),
+  'C1C-A TEST 11: malformed screenshot references are rejected'
+);
+
+// TEST 12 — motion_explainer without CharacterDNA and without ProductAssetContext -> READY
+const resC1CA12 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'motion_explainer',
+  productAssetContext: null,
+});
+assert(
+  resC1CA12.mode === 'motion_explainer' &&
+  resC1CA12.is_ready === true &&
+  resC1CA12.missing_required_inputs.length === 0 &&
+  resC1CA12.required_inputs.length === 0,
+  'C1C-A TEST 12: motion_explainer is READY without external uploaded assets'
+);
+
+// TEST 13 — invalid mode 'human' -> FAIL CLOSED (throws Error)
+let threwOnInvalidMode = false;
+try {
+  (resolveVideoProductionReadiness as any)({
+    productionContext: ctxWithoutChar.context!,
+    selectedMode: 'human',
+  });
+} catch (e: any) {
+  threwOnInvalidMode = true;
+}
+assert(threwOnInvalidMode, 'C1C-A TEST 13: invalid mode "human" fails closed');
+
+// TEST 14 — missing ProductionEngineContext -> FAIL CLOSED (throws Error)
+let threwOnMissingContext = false;
+try {
+  (resolveVideoProductionReadiness as any)({
+    productionContext: null,
+    selectedMode: 'human_led',
+  });
+} catch (e: any) {
+  threwOnMissingContext = true;
+}
+assert(threwOnMissingContext, 'C1C-A TEST 14: missing ProductionEngineContext fails closed');
+
+// TEST 15 — ProductionEngineContext project authority malformed -> FAIL CLOSED (throws Error)
+let threwOnMalformedContext = false;
+try {
+  (resolveVideoProductionReadiness as any)({
+    productionContext: {
+      ...ctxWithoutChar.context!,
+      project_id: '',
+    },
+    selectedMode: 'human_led',
+  });
+} catch (e: any) {
+  threwOnMalformedContext = true;
+}
+assert(threwOnMalformedContext, 'C1C-A TEST 15: ProductionEngineContext with empty project_id fails closed');
+
+// Helper unit tests
+assert(isValidProductScreenshotReference(validScreenshotRef), 'C1C-A HELPER 1: validScreenshotRef is recognized');
+assert(!isValidProductScreenshotReference(logoAssetRef), 'C1C-A HELPER 2: logoAssetRef is not a screenshot');
+assert(!isValidProductScreenshotReference({ id: 'sc', name: 'rec', kind: 'screen_recording' }), 'C1C-A HELPER 3: screen recording is not a screenshot');
+assert(!isValidProductScreenshotReference(null), 'C1C-A HELPER 4: null asset reference returns false');
+assert(isUsableCharacterDNA(validCharacterDNASaaS, 'proj_saas_123'), 'C1C-A HELPER 5: validCharacterDNASaaS is usable');
+assert(!isUsableCharacterDNA(foreignCharacterDNA, 'proj_saas_123'), 'C1C-A HELPER 6: foreign character is not usable for proj_saas_123');
+assert(!isUsableCharacterDNA(missingPromptCharacterDNA, 'proj_saas_123'), 'C1C-A HELPER 7: missing prompt character is not usable');
 
 // -------------------------------------------------------------
 // RESULTS SUMMARY
