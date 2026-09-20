@@ -22,6 +22,8 @@ import {
   Type,
   Camera,
   Film,
+  CheckSquare,
+  RotateCcw,
 } from 'lucide-react';
 import { PromptNextStepLinks } from './PromptNextStepLinks';
 import CharacterSelector from './CharacterSelector';
@@ -42,6 +44,11 @@ import {
   buildCanonicalSceneProductionInstructions,
 } from '@/lib/video-canonical-scene-resolver';
 import { CharacterDNA } from '@/lib/content-contract';
+import {
+  VideoSceneCompletionState,
+  getCompletedVideoSceneCount,
+  areAllVideoScenesCreated,
+} from '@/lib/video-scene-completion';
 
 interface VideoPanelProps {
   activeItem?: any;
@@ -66,6 +73,8 @@ interface VideoPanelProps {
   productAssetContext?: ProductAssetContext | null;
   setProductAssetContext?: (ctx: ProductAssetContext) => void;
   videoProductionReadiness?: VideoProductionReadiness | null;
+  videoSceneCompletionState?: VideoSceneCompletionState | null;
+  handleToggleSceneCompletion?: (sceneNumber: 1 | 2 | 3, isCompleted: boolean) => void;
 }
 
 export default function VideoPanel(props: VideoPanelProps) {
@@ -92,6 +101,8 @@ export default function VideoPanel(props: VideoPanelProps) {
     productAssetContext,
     setProductAssetContext,
     videoProductionReadiness,
+    videoSceneCompletionState,
+    handleToggleSceneCompletion,
   } = props;
 
   // Single active scene state for focused progressive workspace
@@ -484,6 +495,8 @@ export default function VideoPanel(props: VideoPanelProps) {
           copiedStates={copiedStates}
           nextStepVisibleKeys={nextStepVisibleKeys}
           handleDismissNextStep={handleDismissNextStep}
+          videoSceneCompletionState={videoSceneCompletionState}
+          handleToggleSceneCompletion={handleToggleSceneCompletion}
         />
       )}
 
@@ -650,6 +663,8 @@ function WorkspaceCanonicalSceneView({
   copiedStates,
   nextStepVisibleKeys,
   handleDismissNextStep,
+  videoSceneCompletionState,
+  handleToggleSceneCompletion,
 }: {
   activeCandidate: VideoProductionCandidate;
   activeSceneNumber: number;
@@ -662,6 +677,8 @@ function WorkspaceCanonicalSceneView({
   copiedStates: Record<string, boolean>;
   nextStepVisibleKeys: Record<string, boolean>;
   handleDismissNextStep: (key: string) => void;
+  videoSceneCompletionState?: VideoSceneCompletionState | null;
+  handleToggleSceneCompletion?: (sceneNumber: 1 | 2 | 3, isCompleted: boolean) => void;
 }) {
   const canonicalScenes = activeCandidate.production_details.scenes;
   const activeScene: VideoSceneProductionPlan =
@@ -673,6 +690,13 @@ function WorkspaceCanonicalSceneView({
     characterDNA,
     productAssetContext,
   });
+
+  const completedScenesCount = getCompletedVideoSceneCount(videoSceneCompletionState);
+  const allScenesCreated = areAllVideoScenesCreated(videoSceneCompletionState);
+  const currentSceneEntry = videoSceneCompletionState?.scenes?.find(
+    (s) => s.scene_number === activeScene.scene_number
+  );
+  const isCurrentSceneCompleted = Boolean(currentSceneEntry?.clip_created);
 
   if (!instructionResult.isValid || !instructionResult.instructions) {
     return (
@@ -706,11 +730,15 @@ function WorkspaceCanonicalSceneView({
 
   return (
     <div className="space-y-4">
-      {/* Scene Navigation Bar: Exactly 3 Scenes */}
-      <div className="bg-[#f6f3ee] border border-[#e7e0d4] p-2 rounded-2xl flex flex-wrap items-center justify-between gap-2 shadow-xs">
+      {/* Scene Navigation Bar: Exactly 3 Scenes & Progress Summary */}
+      <div className="bg-[#f6f3ee] border border-[#e7e0d4] p-2.5 rounded-2xl flex flex-wrap items-center justify-between gap-2.5 shadow-xs">
         <div className="flex items-center gap-1.5 flex-wrap">
           {canonicalScenes.map((scene: VideoSceneProductionPlan) => {
             const isActive = activeScene.scene_number === scene.scene_number;
+            const sceneCompletion = videoSceneCompletionState?.scenes?.find(
+              (s) => s.scene_number === scene.scene_number
+            );
+            const isSceneCompleted = Boolean(sceneCompletion?.clip_created);
             return (
               <button
                 key={scene.scene_number}
@@ -730,6 +758,12 @@ function WorkspaceCanonicalSceneView({
                   {scene.scene_number}
                 </span>
                 <span>Scene {scene.scene_number}</span>
+                {isSceneCompleted && (
+                  <Check
+                    size={13}
+                    className={isActive ? 'text-emerald-200' : 'text-emerald-600'}
+                  />
+                )}
                 <span
                   className={`text-[10px] opacity-75 font-mono ${
                     isActive ? 'text-white' : 'text-stone-500'
@@ -742,16 +776,43 @@ function WorkspaceCanonicalSceneView({
           })}
         </div>
 
-        <a
-          href="https://labs.google/fx/tools/flow"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="px-3.5 py-2 bg-[#fffdf8] hover:bg-stone-50 border border-[#e7e0d4] text-primary rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs shrink-0 cursor-pointer"
-        >
-          <ExternalLink size={13} />
-          <span>Buka Google Flow</span>
-        </a>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Progress Summary: 0/3 - 3/3 */}
+          <div
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border shadow-2xs ${
+              allScenesCreated
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                : completedScenesCount > 0
+                ? 'bg-amber-50 border-amber-300 text-amber-800'
+                : 'bg-stone-100 border-stone-200 text-stone-700'
+            }`}
+          >
+            {allScenesCreated ? (
+              <CheckSquare size={13} className="text-emerald-700" />
+            ) : (
+              <Video size={13} className="text-stone-600" />
+            )}
+            <span>{completedScenesCount}/3 Clip Dibuat</span>
+          </div>
+
+          <a
+            href="https://labs.google/fx/tools/flow"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3.5 py-2 bg-[#fffdf8] hover:bg-stone-50 border border-[#e7e0d4] text-primary rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs shrink-0 cursor-pointer"
+          >
+            <ExternalLink size={13} />
+            <span>Buka Google Flow</span>
+          </a>
+        </div>
       </div>
+
+      {allScenesCreated && (
+        <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs text-emerald-900 font-medium">
+          <CheckSquare size={14} className="text-emerald-700 shrink-0" />
+          <span>Semua clip scene telah ditandai dibuat (3/3 clip tersedia).</span>
+        </div>
+      )}
 
       {/* ACTIVE SCENE WORKSPACE CARD */}
       <div className="bg-[#fffdf8] border border-[#e7e0d4] rounded-2xl p-5 space-y-4 shadow-xs">
@@ -1002,6 +1063,56 @@ function WorkspaceCanonicalSceneView({
           ]}
           className="mt-1"
         />
+
+        {/* PHASE 3D-C1C-D: MANUAL SCENE CLIP COMPLETION ACTION */}
+        <div className="pt-2">
+          {!isCurrentSceneCompleted ? (
+            <div className="p-4 bg-[#f6f3ee] border border-[#e7e0d4] rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+              <div className="space-y-0.5">
+                <div className="text-xs font-bold text-stone-900 flex items-center gap-1.5">
+                  <Video size={14} className="text-primary" />
+                  <span>Konfirmasi Produksi Clip Scene {activeScene.scene_number}</span>
+                </div>
+                <p className="text-[11px] text-stone-600 leading-relaxed max-w-xl">
+                  Gunakan tombol ini setelah clip scene benar-benar selesai dibuat di Google Flow atau tool eksternal.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  handleToggleSceneCompletion?.(activeScene.scene_number as 1 | 2 | 3, true)
+                }
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition shadow-xs flex items-center gap-2 cursor-pointer shrink-0"
+              >
+                <Check size={14} />
+                <span>Tandai Clip Sudah Dibuat</span>
+              </button>
+            </div>
+          ) : (
+            <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+              <div className="space-y-0.5">
+                <div className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                  <CheckSquare size={14} className="text-emerald-700" />
+                  <span>Clip Sudah Dibuat ✓</span>
+                </div>
+                <p className="text-[11px] text-emerald-700 leading-relaxed max-w-xl">
+                  Clip Scene {activeScene.scene_number} telah dikonfirmasi selesai dibuat di tool eksternal
+                  {currentSceneEntry?.marked_at ? ` (${new Date(currentSceneEntry.marked_at).toLocaleTimeString()})` : ''}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  handleToggleSceneCompletion?.(activeScene.scene_number as 1 | 2 | 3, false)
+                }
+                className="px-3.5 py-2 bg-white hover:bg-stone-50 border border-emerald-300 text-stone-700 font-semibold text-xs rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <RotateCcw size={12} className="text-stone-500" />
+                <span>Batalkan Tanda</span>
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* SCENE NAVIGATION ACTION */}
         {activeScene.scene_number < canonicalScenes.length ? (

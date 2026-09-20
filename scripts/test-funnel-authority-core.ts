@@ -6801,6 +6801,26 @@ assert(
 );
 
 // -------------------------------------------------------------
+// C1C-D STATIC REGRESSION GUARDS
+// -------------------------------------------------------------
+// GUARD 1: VideoPanel must NOT derive clip_created from copiedStates
+assert(
+  !videoPanelSrc.includes('clip_created: copiedStates') &&
+  !videoPanelSrc.includes('clip_created = copiedStates') &&
+  !videoPanelSrc.includes('clip_created: Boolean(copiedStates'),
+  'C1C-D STATIC GUARD 1: VideoPanel must NOT derive clip_created from copiedStates'
+);
+
+// GUARD 2: No Video ProductionPackage creation or production_status = 'completed' introduced in VideoPanel or video completion
+assert(
+  !videoPanelSrc.includes("production_status = 'completed'") &&
+  !videoPanelSrc.includes('production_status: "completed"') &&
+  !videoPanelSrc.includes('prepareVideoProductionPackage(') &&
+  !videoPanelSrc.includes('saveVideoProductionPackage('),
+  'C1C-D STATIC GUARD 2: No Video ProductionPackage creation or production_status = completed in VideoPanel'
+);
+
+// -------------------------------------------------------------
 // RESULTS SUMMARY
 // -------------------------------------------------------------
 console.log('\n=== TEST SUMMARY ===');

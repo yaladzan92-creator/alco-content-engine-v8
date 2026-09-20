@@ -81,6 +81,15 @@ import ProductionProgressWidget from '@/components/calendar/ProductionProgressWi
 import { GeminiApiKeyControl } from '@/components/GeminiApiKeyControl';
 import ContentEngineShell from '@/components/ContentEngineShell';
 import { buildGeminiRequestHeaders, useGeminiApiKey } from '@/lib/client-gemini-key';
+import {
+  VideoSceneCompletionState,
+  createEmptyVideoSceneCompletionState,
+  validateVideoSceneCompletionState,
+  setVideoSceneClipCreated,
+  getVideoSceneCompletionStorageKey,
+  buildVideoScenePlanSignature,
+} from '@/lib/video-scene-completion';
+import { resolveSelectedVideoProductionCandidate } from '@/lib/video-canonical-scene-resolver';
 
 
 
@@ -4657,6 +4666,117 @@ ${formatDirection}${revisionDirective}`;
     return validateAndNormalizeVideoStyles(textToParse, activeItem, activeContext, attachCandidate) || videoOutput;
   }, [videoOutput, videoOutputSource, activeItem, activeContext]);
 
+  // Phase 3D-C1C-D: Candidate parsing & scene plan signature derivation for completion state binding
+  const canonicalVideoCandidates = useMemo<VideoProductionCandidate[]>(() => {
+    if (!normalizedVideoOutput) return [];
+    try {
+      const parsed = tryParseJSON(normalizedVideoOutput);
+      if (!Array.isArray(parsed)) return [];
+      const list: VideoProductionCandidate[] = [];
+      for (const item of parsed) {
+        if (!item || typeof item !== 'object') continue;
+        if (item.candidate_type === 'video' && item.production_details) {
+          list.push(item as VideoProductionCandidate);
+        } else if (item.productionCandidate && item.productionCandidate.candidate_type === 'video') {
+          list.push(item.productionCandidate as VideoProductionCandidate);
+        }
+      }
+      return list;
+    } catch {
+      return [];
+    }
+  }, [normalizedVideoOutput, tryParseJSON]);
+
+  const activeVideoCandidate = useMemo<VideoProductionCandidate | null>(() => {
+    if (!selectedVideoProductionMode || canonicalVideoCandidates.length === 0) return null;
+    return resolveSelectedVideoProductionCandidate({
+      candidates: canonicalVideoCandidates,
+      selectedMode: selectedVideoProductionMode,
+    });
+  }, [canonicalVideoCandidates, selectedVideoProductionMode]);
+
+  const currentScenePlanSignature = useMemo<string>(() => {
+    return buildVideoScenePlanSignature(activeVideoCandidate);
+  }, [activeVideoCandidate]);
+
+  // Phase 3D-C1C-D: Real Scene Completion State (Persistent, Isolated by Project + Item + Mode + Signature)
+  const [videoSceneCompletionState, setVideoSceneCompletionState] =
+    useState<VideoSceneCompletionState | null>(null);
+
+  useEffect(() => {
+    if (
+      !canonicalProjectId ||
+      !activeItem?.content_item_id ||
+      !selectedVideoProductionMode ||
+      !currentScenePlanSignature
+    ) {
+      setVideoSceneCompletionState(null);
+      return;
+    }
+
+    const storageKey = getVideoSceneCompletionStorageKey(
+      activeItem.content_item_id,
+      selectedVideoProductionMode
+    );
+    const stored = loadProjectData(canonicalProjectId, storageKey);
+    const expected = {
+      project_id: canonicalProjectId,
+      content_item_id: activeItem.content_item_id,
+      production_mode: selectedVideoProductionMode,
+      scene_plan_signature: currentScenePlanSignature,
+    };
+
+    const validation = validateVideoSceneCompletionState(stored, expected);
+    if (validation.isValid && stored) {
+      setVideoSceneCompletionState(stored as VideoSceneCompletionState);
+    } else {
+      const fresh = createEmptyVideoSceneCompletionState(expected);
+      setVideoSceneCompletionState(fresh);
+      saveProjectData(canonicalProjectId, storageKey, fresh);
+    }
+  }, [
+    canonicalProjectId,
+    activeItem?.content_item_id,
+    selectedVideoProductionMode,
+    currentScenePlanSignature,
+  ]);
+
+  const handleToggleSceneCompletion = (sceneNumber: 1 | 2 | 3, isCompleted: boolean) => {
+    if (
+      !canonicalProjectId ||
+      !activeItem?.content_item_id ||
+      !selectedVideoProductionMode ||
+      !currentScenePlanSignature
+    ) {
+      return;
+    }
+    const expected = {
+      project_id: canonicalProjectId,
+      content_item_id: activeItem.content_item_id,
+      production_mode: selectedVideoProductionMode,
+      scene_plan_signature: currentScenePlanSignature,
+    };
+
+    const currentState =
+      videoSceneCompletionState &&
+      validateVideoSceneCompletionState(videoSceneCompletionState, expected).isValid
+        ? videoSceneCompletionState
+        : createEmptyVideoSceneCompletionState(expected);
+
+    const nextState = setVideoSceneClipCreated(currentState, sceneNumber, isCompleted);
+    setVideoSceneCompletionState(nextState);
+    const storageKey = getVideoSceneCompletionStorageKey(
+      activeItem.content_item_id,
+      selectedVideoProductionMode
+    );
+    saveProjectData(canonicalProjectId, storageKey, nextState);
+    if (isCompleted) {
+      showToast(`Scene ${sceneNumber} ditandai: Clip Sudah Dibuat ✓`);
+    } else {
+      showToast(`Tanda clip Scene ${sceneNumber} dibatalkan`);
+    }
+  };
+
   // Render content of active tab dynamically with premium workshop components
   const renderTabContent = () => {
     const funnelRules = getFunnelRules(normalizeFunnelStage(activeItem?.jenis || ""));
@@ -4677,6 +4797,7 @@ ${formatDirection}${revisionDirective}`;
       characterDNA, getGoogleFlowVideoPack, setActiveTab,
       savedCharacters, selectedCharacterId, handleSelectCharacter, handleCreateCharacterClick,
       productAssetContext, setProductAssetContext: saveProductAssetContext, videoProductionReadiness,
+      videoSceneCompletionState, handleToggleSceneCompletion,
     };
 
     if (activeTab === 'image') return <ImagePanel {...commonProps} />;
