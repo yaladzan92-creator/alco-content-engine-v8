@@ -6478,15 +6478,27 @@ assert(
 // C1C-C TEST 9: Human Led mode instructions use authoritative talking_head scenes & CharacterDNA without generic fallback
 const mockDna: CharacterDNA = {
   character_id: 'char_budi_01',
+  project_id: 'proj_test_01',
+  reference_images: [],
   identity: {
     display_name: 'Budi Santoso',
-    gender: 'male',
-    apparent_age: '30s',
-    role_or_archetype: 'Tech Lead Expert',
-    brand_relationship: 'Brand Ambassador',
   },
-  dna_summary_prompt: 'Professional Indonesian tech specialist in dark navy minimalist shirt',
-  negative_constraints: ['no cartoon', 'no 3D render'],
+  style: {},
+  behavior: {},
+  consistency_rules: {
+    locked_traits: [],
+    avoid_traits: [],
+  },
+  prompt_assets: {
+    dna_summary_prompt: 'Professional Indonesian tech specialist in dark navy minimalist shirt',
+    locked_visual_prompt: 'Professional Indonesian tech specialist in dark navy minimalist shirt',
+    preview_generation_prompt: 'Professional Indonesian tech specialist',
+    scene_reuse_prompt_template: 'Professional Indonesian tech specialist',
+  },
+  timestamps: {
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
 };
 const humanInstructions = buildCanonicalSceneProductionInstructions({
   scene: tofuHumanScenes[0],
@@ -6494,14 +6506,26 @@ const humanInstructions = buildCanonicalSceneProductionInstructions({
   characterDNA: mockDna,
 });
 assert(
-  humanInstructions.imagePrompt.includes('Budi Santoso') ||
-  humanInstructions.imagePrompt.includes('Professional Indonesian tech specialist'),
+  humanInstructions.isValid === true &&
+  Boolean(humanInstructions.instructions?.imagePrompt.includes('Professional Indonesian tech specialist')),
   'C1C-C TEST 9a: Human Led scene uses authoritative CharacterDNA in visual prompt'
 );
 assert(
-  !humanInstructions.imagePrompt.includes('a 26-year-old Indonesian content creator') &&
-  !humanInstructions.imagePrompt.includes('a young energetic creator'),
+  humanInstructions.isValid === true &&
+  !humanInstructions.instructions?.imagePrompt.includes('a 26-year-old Indonesian content creator') &&
+  !humanInstructions.instructions?.imagePrompt.includes('a young energetic creator'),
   'C1C-C TEST 9b: Human Led scene does not fall back to generic creator hardcoding'
+);
+
+// C1C-C TEST 9c: Human Led mode fails closed when CharacterDNA prompt_assets are missing
+const humanInstructionsMissingDna = buildCanonicalSceneProductionInstructions({
+  scene: tofuHumanScenes[0],
+  productionMode: 'human_led',
+  characterDNA: null,
+});
+assert(
+  humanInstructionsMissingDna.isValid === false,
+  'C1C-C TEST 9c: Human Led mode fails closed when CharacterDNA is missing'
 );
 
 // C1C-C TEST 10: Product Demo mode uses canonical product_screen / b_roll / end_card scenes
@@ -6514,15 +6538,18 @@ assert(
 // C1C-C TEST 11: Product Demo mode references actual ProductAssetContext screenshots without fabricating images
 const productCtxWithShots: ProductAssetContext = {
   product_name: 'Alco SaaS Platform',
+  product_type: 'web_application',
   screenshots: [
     {
       id: 'shot_1',
-      storage_path: '/shots/dashboard.png',
-      caption: 'Main Analytics Dashboard',
-      created_at: 1000,
-      byte_size: 2048,
+      name: 'analytics-dashboard.png',
+      kind: 'screenshot',
     },
   ],
+  feature_focus: [],
+  demo_steps: [],
+  logo_reference: null,
+  screen_recording_reference: null,
 };
 const demoInstructions = buildCanonicalSceneProductionInstructions({
   scene: mofuDemoScenes[0],
@@ -6530,9 +6557,24 @@ const demoInstructions = buildCanonicalSceneProductionInstructions({
   productAssetContext: productCtxWithShots,
 });
 assert(
-  demoInstructions.imagePrompt.includes('Main Analytics Dashboard') &&
-  demoInstructions.imagePrompt.includes('Alco SaaS Platform'),
+  demoInstructions.isValid === true &&
+  Boolean(demoInstructions.instructions?.imagePrompt.includes('analytics-dashboard.png')) &&
+  Boolean(demoInstructions.instructions?.imagePrompt.includes('Alco SaaS Platform')),
   'C1C-C TEST 11: Product Demo scene instructions reference actual ProductAssetContext screenshots'
+);
+
+// C1C-C TEST 11b: Product Demo fails closed when screenshots or product_name are missing
+const demoMissingShots = buildCanonicalSceneProductionInstructions({
+  scene: mofuDemoScenes[0],
+  productionMode: 'product_demo',
+  productAssetContext: {
+    ...productCtxWithShots,
+    screenshots: [],
+  },
+});
+assert(
+  demoMissingShots.isValid === false,
+  'C1C-C TEST 11b: Product Demo fails closed when screenshot assets are missing'
 );
 
 // C1C-C TEST 12: Motion Explainer mode generates instructions purely from canonical scene fields without requiring DNA or screenshots
@@ -6541,11 +6583,10 @@ const motionInstructions = buildCanonicalSceneProductionInstructions({
   productionMode: 'motion_explainer',
 });
 assert(
-  motionInstructions.imagePrompt.length > 20 &&
-  motionInstructions.motionPrompt.length > 20 &&
-  !motionInstructions.imagePrompt.includes('distorted face') &&
-  motionInstructions.imagePrompt.includes('kinetic typography') ||
-  motionInstructions.imagePrompt.includes('Infografis'),
+  motionInstructions.isValid === true &&
+  (motionInstructions.instructions?.imagePrompt.length ?? 0) > 20 &&
+  (motionInstructions.instructions?.motionPrompt.length ?? 0) > 20 &&
+  !motionInstructions.instructions?.imagePrompt.includes('distorted face'),
   'C1C-C TEST 12: Motion Explainer generates instructions purely from canonical scene fields'
 );
 
@@ -6673,7 +6714,12 @@ for (const mode of modes) {
     characterDNA: mode === 'human_led' ? mockDna : null,
     productAssetContext: mode === 'product_demo' ? productCtxWithShots : null,
   });
-  if (!instr.imagePrompt || !instr.motionPrompt || !instr.voiceover) {
+  if (
+    !instr.isValid ||
+    !instr.instructions?.imagePrompt ||
+    !instr.instructions?.motionPrompt ||
+    !instr.instructions?.voiceover
+  ) {
     allModesResolved = false;
     break;
   }

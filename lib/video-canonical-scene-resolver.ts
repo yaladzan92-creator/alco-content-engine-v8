@@ -5,6 +5,7 @@ import {
   validateProductionCandidate,
 } from './production-candidate';
 import { ProductAssetContext } from './video-production-input';
+import { CharacterDNA } from './content-contract';
 
 export interface CanonicalSceneResolveParams {
   candidates: any[] | null | undefined;
@@ -207,10 +208,8 @@ export function getRequiredAssetLabel(assetToken: string): string {
 export interface BuildSceneInstructionsParams {
   scene: VideoSceneProductionPlan;
   productionMode: VideoProductionMode;
-  characterDNA?: any | null;
+  characterDNA?: CharacterDNA | null;
   productAssetContext?: ProductAssetContext | null;
-  brandName?: string;
-  funnelStage?: string;
 }
 
 export interface SceneProductionInstructions {
@@ -220,13 +219,31 @@ export interface SceneProductionInstructions {
   onScreenText: string;
 }
 
+export interface SceneProductionInstructionResult {
+  isValid: boolean;
+  instructions?: SceneProductionInstructions;
+  error?: string;
+}
+
 /**
- * Pure builder generating production prompts and execution guidance for a canonical scene.
+ * Deterministic translator that converts canonical scene fields into production-friendly prompts.
+ * Strictly avoids generic strategic or visual invention.
+ * 
+ * FAILS CLOSED if:
+ * - human_led is invoked without valid CharacterDNA (dna_summary_prompt or locked_visual_prompt)
+ * - product_demo is invoked without valid product_name or at least 1 valid screenshot reference
  */
 export function buildCanonicalSceneProductionInstructions(
   params: BuildSceneInstructionsParams
-): SceneProductionInstructions {
-  const { scene, productionMode, characterDNA, productAssetContext, brandName } = params;
+): SceneProductionInstructionResult {
+  const { scene, productionMode, characterDNA, productAssetContext } = params;
+
+  if (!scene || typeof scene !== 'object') {
+    return {
+      isValid: false,
+      error: 'Scene canonical wajib tersedia (FAIL CLOSED).',
+    };
+  }
 
   const voiceover = scene.voiceover || '—';
   const onScreenText = scene.on_screen_text || '—';
@@ -235,84 +252,118 @@ export function buildCanonicalSceneProductionInstructions(
   let motionPrompt = '';
 
   if (productionMode === 'human_led') {
-    // Human Led: use authoritative CharacterDNA
+    // Human Led: use authoritative CharacterDNA prompt_assets
     const characterSubject =
-      characterDNA?.dna_summary_prompt ||
-      characterDNA?.locked_visual_prompt ||
-      (characterDNA?.identity?.display_name
-        ? `Talent Karakter ${characterDNA.identity.display_name}`
-        : 'Talent Karakter Konsisten (CharacterDNA)');
+      characterDNA?.prompt_assets?.dna_summary_prompt ||
+      characterDNA?.prompt_assets?.locked_visual_prompt;
 
-    imagePrompt = `Start Frame Image Prompt (Format 9:16 Vertical Portrait):
-Subject: ${characterSubject}.
-Action: ${scene.action || scene.visual_direction}.
-Camera & Framing: ${scene.camera || 'Medium close-up vertikal, eye-level'}.
-Environment & Lighting: Studio kerja natural terang, pencahayaan alami lembut, kedalaman ruang sinematik halus.
-Composition: Framing vertikal 9:16 rule of thirds, subjek di tengah/kanan frame, ruang negatif lapang di kiri atas untuk teks.
-Negative Prompt: distorted anatomy, inconsistent face, extra fingers, cartoon, 3D render, blurry, low resolution, distorted hands, generic stock photo.`;
+    if (!characterSubject || typeof characterSubject !== 'string' || !characterSubject.trim()) {
+      return {
+        isValid: false,
+        error: 'CharacterDNA dengan prompt_assets wajib tersedia untuk mode human_led (FAIL CLOSED).',
+      };
+    }
+
+    imagePrompt = `Start Frame Image Prompt (Format 9:16 Vertical):
+Subject: ${characterSubject.trim()}
+Visual Direction: ${scene.visual_direction || '—'}
+Action: ${scene.action || '—'}
+Camera: ${scene.camera || '—'}
+On-Screen Text: ${scene.on_screen_text || '—'}
+Negative Constraints: no blurry text, no distorted anatomy, no visual artifacts`;
 
     motionPrompt = `Video Motion Prompt (Google FX Studio / Veo):
-Camera: ${scene.camera || 'Eye-level medium close-up shot'}.
-Action & Movement: ${scene.action || scene.visual_direction}.
-Visual Direction: ${scene.visual_direction}.
-Dialogue Cue: "${scene.voiceover}".
-On-Screen Text Cue: "${scene.on_screen_text}".
-Duration: ${scene.duration_seconds}s.
-Format: 9:16 vertical video.
-Negative Prompt: jump cuts, jittery camera, face morphing, flickering background, unnatural motion artifacts.`;
+Camera: ${scene.camera || '—'}
+Action: ${scene.action || '—'}
+Voiceover Cue: "${voiceover}"
+On-Screen Text Cue: "${onScreenText}"
+Duration: ${scene.duration_seconds}s
+Format: 9:16 vertical video
+Negative Constraints: no abrupt cuts, no jittery camera, no distorted motion artifacts`;
   } else if (productionMode === 'product_demo') {
     // Product Demo: use ProductAssetContext
-    const prodName = productAssetContext?.product_name || brandName || 'Aplikasi / Produk';
-    const screenshots = productAssetContext?.screenshots || [];
-    const screenshotRefText =
-      screenshots.length > 0
-        ? `Tersedia ${screenshots.length} tangkapan layar produk referensi: ${screenshots
-            .map((s, idx) => `[Screenshot ${idx + 1}: ${s.caption || s.storage_path || 'UI View'}]`)
-            .join(', ')}.`
-        : 'Menggunakan tampilan antarmuka produk UI modern.';
+    if (!productAssetContext || typeof productAssetContext !== 'object') {
+      return {
+        isValid: false,
+        error: 'ProductAssetContext wajib tersedia untuk mode product_demo (FAIL CLOSED).',
+      };
+    }
 
-    imagePrompt = `Start Frame Image Prompt (Format 9:16 Vertical Screen UI):
-Subject: Tampilan antarmuka kerja dan dasbor fitur untuk produk "${prodName}".
-Supporting Assets: ${screenshotRefText}
-Action & Focus: ${scene.action || scene.visual_direction}.
-Camera & Framing: ${scene.camera || 'Isometric 45-degree angle or flat UI presentation'}.
-Visual Style: Modern clean software UI mockup, tipografi tajam dengan kontras tinggi, palet warna elegan.
-Negative Prompt: distorted UI, fake unreadable text, broken layout geometry, blurry interface, pixelated graphics, hard selling ads.`;
+    const prodName = productAssetContext.product_name;
+    if (!prodName || typeof prodName !== 'string' || !prodName.trim()) {
+      return {
+        isValid: false,
+        error: 'product_name wajib tersedia pada ProductAssetContext untuk mode product_demo (FAIL CLOSED).',
+      };
+    }
+
+    const validScreenshots = Array.isArray(productAssetContext.screenshots)
+      ? productAssetContext.screenshots.filter(
+          (s) =>
+            s &&
+            s.kind === 'screenshot' &&
+            typeof s.id === 'string' &&
+            s.id.trim().length > 0 &&
+            typeof s.name === 'string' &&
+            s.name.trim().length > 0
+        )
+      : [];
+
+    if (validScreenshots.length === 0) {
+      return {
+        isValid: false,
+        error: 'Minimal 1 screenshot valid wajib tersedia pada ProductAssetContext untuk mode product_demo (FAIL CLOSED).',
+      };
+    }
+
+    const screenshotListText = validScreenshots
+      .map((s, idx) => `[Screenshot ${idx + 1}: ${s.name}]`)
+      .join(', ');
+
+    imagePrompt = `Start Frame Image Prompt (Format 9:16 Vertical):
+Product: ${prodName.trim()}
+Screenshots: ${screenshotListText}
+Visual Direction: ${scene.visual_direction || '—'}
+Action: ${scene.action || '—'}
+Camera: ${scene.camera || '—'}
+On-Screen Text: ${scene.on_screen_text || '—'}
+Negative Constraints: no blurry text, no distorted UI, no broken layout geometry`;
 
     motionPrompt = `Video Motion Prompt (Google FX Studio / Veo):
-Camera: ${scene.camera || 'Smooth pan and zoom over UI interface'}.
-Action & Workflow: ${scene.action || scene.visual_direction}.
-UI Direction: ${scene.visual_direction}.
-Dialogue Cue: "${scene.voiceover}".
-On-Screen Text Cue: "${scene.on_screen_text}".
-Duration: ${scene.duration_seconds}s.
-Format: 9:16 vertical video.
-Negative Prompt: glitchy UI transitions, blurry screen elements, distorted window frames, erratic cursor motion.`;
+Camera: ${scene.camera || '—'}
+Action: ${scene.action || '—'}
+Voiceover Cue: "${voiceover}"
+On-Screen Text Cue: "${onScreenText}"
+Duration: ${scene.duration_seconds}s
+Format: 9:16 vertical video
+Negative Constraints: no glitchy transitions, no blurry screen elements, no erratic motion`;
   } else {
-    // Motion Explainer: purely conceptual / typography / diagrammatic
-    imagePrompt = `Start Frame Image Prompt (Format 9:16 Vertical Motion Graphic):
-Subject: Infografis minimalis, diagram konsep alur, dan kinetic typography.
-Key Typography Overlay: "${scene.on_screen_text}".
-Visual Concept: ${scene.visual_direction}.
-Composition & Framing: ${scene.camera || 'Center card layout vertical 9:16'}.
-Color & Lighting: Neutral off-white canvas (#F8F7F4) dengan aksen warna brand berdimensi halus.
-Negative Prompt: photorealistic person, complex faces, human hands, messy sketch, stock photo, blurry text, cluttered layout.`;
+    // Motion Explainer: purely derived from canonical scene fields
+    imagePrompt = `Start Frame Image Prompt (Format 9:16 Vertical):
+Visual Direction: ${scene.visual_direction || '—'}
+Camera: ${scene.camera || '—'}
+On-Screen Text: ${scene.on_screen_text || '—'}
+Negative Constraints: no photorealistic person, no messy sketch, no blurry text`;
 
     motionPrompt = `Video Motion Prompt (Google FX Studio / Veo):
-Camera: ${scene.camera || 'Dynamic kinetic motion camera'}.
-Motion Direction: ${scene.action || scene.visual_direction}.
-Graphic Animation: ${scene.visual_direction}.
-On-Screen Typography Cue: "${scene.on_screen_text}".
-Voiceover Pacing: "${scene.voiceover}".
-Duration: ${scene.duration_seconds}s.
-Format: 9:16 vertical video.
-Negative Prompt: abrupt cuts, jittery animation, overlapping text layers, unreadable typography, harsh flickering.`;
+Camera: ${scene.camera || '—'}
+Action: ${scene.action || '—'}
+Visual Direction: ${scene.visual_direction || '—'}
+Voiceover Cue: "${voiceover}"
+On-Screen Text Cue: "${onScreenText}"
+Duration: ${scene.duration_seconds}s
+Format: 9:16 vertical video
+Negative Constraints: no abrupt cuts, no jittery animation, no unreadable typography`;
   }
 
   return {
-    imagePrompt,
-    motionPrompt,
-    voiceover,
-    onScreenText,
+    isValid: true,
+    instructions: {
+      imagePrompt,
+      motionPrompt,
+      voiceover,
+      onScreenText,
+    },
   };
 }
+

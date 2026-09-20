@@ -34,9 +34,6 @@ import {
   VideoProductionCandidate,
   VideoSceneProductionPlan,
   VideoProductionMode,
-  buildCanonicalVideoScenePlan,
-  buildVideoProductionCandidate,
-  getVideoCandidateId,
 } from '@/lib/production-candidate';
 import {
   resolveSelectedVideoProductionCandidate,
@@ -44,6 +41,7 @@ import {
   getRequiredAssetLabel,
   buildCanonicalSceneProductionInstructions,
 } from '@/lib/video-canonical-scene-resolver';
+import { CharacterDNA } from '@/lib/content-contract';
 
 interface VideoPanelProps {
   activeItem?: any;
@@ -55,14 +53,12 @@ interface VideoPanelProps {
   getInitialDraft?: (tab: string, item: any, context: any) => string;
   videoOutput?: string;
   tryParseJSON?: (jsonStr: string) => any;
-  normalizeFunnelStage?: (jenis: string) => string;
-  getFunnelRules?: (stage: string) => any;
   selectedVideoProductionMode?: VideoProductionMode;
   handleSelectVideoProductionMode?: (mode: VideoProductionMode) => void;
   recommendedVideoProductionMode?: VideoProductionMode;
   videoIntentDecision?: any;
   handleUseRecommendation?: () => void;
-  characterDNA?: any;
+  characterDNA?: CharacterDNA | null;
   savedCharacters?: any[];
   selectedCharacterId?: string | null;
   handleSelectCharacter?: (id: string) => void;
@@ -83,8 +79,6 @@ export default function VideoPanel(props: VideoPanelProps) {
     getInitialDraft,
     videoOutput,
     tryParseJSON = JSON.parse,
-    normalizeFunnelStage = (s: string) => s || 'TOFU',
-    getFunnelRules = () => ({ goal: 'Brand Awareness' }),
     selectedVideoProductionMode = 'human_led',
     handleSelectVideoProductionMode,
     recommendedVideoProductionMode,
@@ -106,7 +100,10 @@ export default function VideoPanel(props: VideoPanelProps) {
   // Reset active scene to Scene 1 whenever content item or selected mode changes
   useEffect(() => {
     setActiveSceneNumber(1);
-  }, [activeItem?.id, selectedVideoProductionMode]);
+  }, [
+    activeItem?.content_item_id,
+    selectedVideoProductionMode,
+  ]);
 
   const effectiveVideoOutput =
     videoOutput || (getInitialDraft ? getInitialDraft('video', activeItem, activeContext) : '');
@@ -129,10 +126,7 @@ export default function VideoPanel(props: VideoPanelProps) {
     );
   }
 
-  const videoFunnelStage = normalizeFunnelStage(activeItem?.jenis || 'TOFU') as any;
-  const funnelRules = getFunnelRules(videoFunnelStage);
-
-  // Build candidate objects list strictly conforming to VideoProductionCandidate schema
+  // Strictly consume canonical candidates that already exist (NO reconstruction from legacy scripts)
   const candidatesToResolve: VideoProductionCandidate[] = [];
   for (const style of rawVideoStyles) {
     if (!style || typeof style !== 'object') continue;
@@ -141,30 +135,6 @@ export default function VideoPanel(props: VideoPanelProps) {
       candidatesToResolve.push(style as VideoProductionCandidate);
     } else if (style.productionCandidate && style.productionCandidate.candidate_type === 'video') {
       candidatesToResolve.push(style.productionCandidate as VideoProductionCandidate);
-    } else if (style.productionMode && style.script) {
-      try {
-        const mode = style.productionMode as VideoProductionMode;
-        const scenes = buildCanonicalVideoScenePlan(videoFunnelStage, mode, style.script);
-        const candidateId = getVideoCandidateId(mode);
-        const cand = buildVideoProductionCandidate({
-          candidate_id: candidateId,
-          production_mode: mode,
-          objective: activeItem?.tujuan || funnelRules?.goal || '',
-          format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
-          hook: style.script?.hook || '',
-          scenes,
-          motion_direction: style.pacingStyle || '',
-          audio_direction: style.audioDirection || '',
-          negative_constraints:
-            style.negativeConstraints ||
-            style.negative_constraints ||
-            'No distorted anatomy, no visual artifacts',
-          final_prompt: style.videoPrompt || style.video_prompt || '',
-        });
-        candidatesToResolve.push(cand);
-      } catch {
-        // Fail closed for malformed individual candidate
-      }
     }
   }
 
@@ -469,7 +439,7 @@ export default function VideoPanel(props: VideoPanelProps) {
       {/* 4. CANONICAL SCENE GUIDED UX WORKSPACE (Phase 3D-C1C-C) */}
       {!activeCandidate ? (
         <div className="p-8 text-center bg-[#fcfbf9] border border-[#e7e0d4] rounded-2xl text-muted-foreground text-sm font-medium font-sans">
-          Rencana scene canonical untuk mode &quot;{getVideoProductionModeLabel(selectedVideoProductionMode)}&quot; tidak tersedia atau tidak valid. Pastikan rencana produksi memiliki 3 scene canonical yang valid.
+          Rencana scene canonical untuk mode ini tidak tersedia.
         </div>
       ) : !isWorkspaceReady ? (
         <div className="bg-[#fffdf8] border border-amber-200 rounded-2xl p-6 text-center space-y-2 shadow-xs">
@@ -496,8 +466,6 @@ export default function VideoPanel(props: VideoPanelProps) {
           activeStyleKey={activeStyleKey}
           characterDNA={characterDNA}
           productAssetContext={productAssetContext}
-          activeContext={activeContext}
-          videoFunnelStage={videoFunnelStage}
           handleCopyText={handleCopyText}
           copiedStates={copiedStates}
           nextStepVisibleKeys={nextStepVisibleKeys}
@@ -664,8 +632,6 @@ function WorkspaceCanonicalSceneView({
   activeStyleKey,
   characterDNA,
   productAssetContext,
-  activeContext,
-  videoFunnelStage,
   handleCopyText,
   copiedStates,
   nextStepVisibleKeys,
@@ -676,10 +642,8 @@ function WorkspaceCanonicalSceneView({
   setActiveSceneNumber: (n: number) => void;
   selectedVideoProductionMode: VideoProductionMode;
   activeStyleKey: string;
-  characterDNA?: any;
+  characterDNA?: CharacterDNA | null;
   productAssetContext?: ProductAssetContext | null;
-  activeContext?: any;
-  videoFunnelStage: string;
   handleCopyText: (key: string, text: string, feedbackType?: string) => void;
   copiedStates: Record<string, boolean>;
   nextStepVisibleKeys: Record<string, boolean>;
@@ -689,14 +653,19 @@ function WorkspaceCanonicalSceneView({
   const activeScene: VideoSceneProductionPlan =
     canonicalScenes.find((s) => s.scene_number === activeSceneNumber) || canonicalScenes[0];
 
-  const instructions = buildCanonicalSceneProductionInstructions({
+  const instructionResult = buildCanonicalSceneProductionInstructions({
     scene: activeScene,
     productionMode: selectedVideoProductionMode,
     characterDNA,
     productAssetContext,
-    brandName: activeContext?.brand_context?.brand_name,
-    funnelStage: videoFunnelStage,
   });
+
+  const instructions = instructionResult.instructions || {
+    imagePrompt: instructionResult.error || '—',
+    motionPrompt: instructionResult.error || '—',
+    voiceover: activeScene.voiceover || '—',
+    onScreenText: activeScene.on_screen_text || '—',
+  };
 
   const imgCopyKey = `canonical_img_${activeScene.scene_number}_${activeStyleKey}`;
   const promptCopyKey = `canonical_prompt_${activeScene.scene_number}_${activeStyleKey}`;
@@ -829,7 +798,7 @@ function WorkspaceCanonicalSceneView({
                     key={s.id || idx}
                     className="px-2 py-0.5 rounded bg-white border border-[#e7e0d4] text-stone-700 font-medium"
                   >
-                    #{idx + 1} {s.caption || s.storage_path}
+                    #{idx + 1} {s.name}
                   </span>
                 ))}
               </div>
