@@ -39,6 +39,7 @@ import {
 import {
   SharedContentContext,
   ContentItem,
+  CharacterDNA,
 } from '../lib/content-contract';
 import { buildFunnelStrategyFromContext } from '../lib/funnel-strategy';
 import {
@@ -51,7 +52,6 @@ import {
   saveProductionPackage,
   loadProductionPackage,
 } from '../lib/production-package-storage';
-import { CharacterDNA } from '../lib/character-dna';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -85,7 +85,7 @@ if (typeof globalScope.window === 'undefined') {
   };
 }
 
-function assert(condition: boolean, message: string): void {
+function assert(condition: boolean, message: string): asserts condition {
   if (!condition) {
     throw new Error(`FAIL: ${message}`);
   }
@@ -137,29 +137,25 @@ function createMockContext(projectId: string = 'proj-carousel-123'): SharedConte
 function createMockContentItem(
   projectId: string = 'proj-carousel-123',
   contentItemId: string = 'item-carousel-456'
-): ContentItem {
+): ContentItem & { project_id: string; content_item_id: string } {
   return {
+    no: 1,
     project_id: projectId,
     projectId: projectId,
     content_item_id: contentItemId,
-    jenis: 'TOFU',
+    tanggal: '2026-09-20',
+    jenis: 'TOFU (Awareness)',
     headline: 'AI Framework for Scalable Content',
     body: 'Learn how to automate and standardize your content production pipeline.',
     caption: 'Save this carousel to streamline your next content cycle.',
     cta: 'Save this carousel',
     visual: 'Clean technical visual diagrams with dark theme',
-    format: 'carousel',
+    format: 'Carousel',
     tujuan: 'Educate audience on structured production workflows',
+    hookType: 'Problem Agitation',
+    referensi: 'Systematic frameworks',
     keterangan: 'TOFU educational post designed to maximize saves and shares',
-    theme: 'AI Automation Framework',
-    topic: 'How to scale content operations',
-    target_audience: 'Early stage startup founders',
-    angle: 'Step-by-step systems thinking',
-    hook: 'Stop posting randomly without an asset pipeline.',
-    key_takeaway: 'Structure before distribution.',
-    call_to_action: 'Save this carousel for your next content sprint.',
-    monetization_goal: 'Lead generation',
-    channel: 'Instagram',
+    channel: 'instagram',
   };
 }
 
@@ -218,31 +214,41 @@ function createMockCanonicalSlides(
 // Helper to build a mock CharacterDNA
 function createMockCharacterDNA(projectId: string = 'proj-carousel-123'): CharacterDNA {
   return {
-    schema_version: '1.0.0',
     character_id: 'char-alex-99',
     project_id: projectId,
+    reference_images: ['https://example.com/alex1.png'],
+    preview_image: 'https://example.com/alex_preview.png',
+    additional_instructions: 'Keep tech minimalist tone',
     identity: {
       display_name: 'Alex Vance',
-      gender: 'Non-binary',
-      age_appearance: 'Late 20s',
-      ethnicity: 'Mixed Asian-European',
-      distinguishing_features: 'Wire-frame round glasses, structured navy blazer',
+      gender_presentation: 'Non-binary',
+      estimated_age_range: 'Late 20s',
+      ethnicity_or_region_hint: 'Mixed Asian-European',
+      facial_features: 'Sharp jawline, calm and focused expression',
+      hair_description: 'Neat dark undercut',
+      distinctive_characteristics: 'Wire-frame round glasses, structured navy blazer',
     },
-    visual_consistency: {
-      face_features: 'Sharp jawline, calm and focused expression',
-      hair_style: 'Neat dark undercut',
-      wardrobe_defaults: 'Minimalist navy blazer, plain white t-shirt',
-      color_palette: ['Navy #0F172A', 'Slate #475569', 'Crisp White #FFFFFF'],
+    style: {
+      wardrobe_style: 'Minimalist navy blazer, plain white t-shirt',
+      visual_vibe: 'Modern tech minimalist',
     },
-    personality_tone: {
-      energy_level: 'Grounded and confident',
-      communication_style: 'Precise and educational',
-      signature_mannerism: 'Steeple hands when breaking down complex ideas',
+    behavior: {
+      speaking_tone: 'Precise and educational',
+      expression_style: 'Grounded and confident',
     },
-    rules: {
-      always_include: ['round wire-frame glasses', 'navy blazer'],
-      never_include: ['flashy logos', 'casual sportswear'],
-      lighting_preference: 'Soft natural daylight from side window',
+    consistency_rules: {
+      locked_traits: ['round wire-frame glasses', 'navy blazer'],
+      avoid_traits: ['flashy logos', 'casual sportswear'],
+    },
+    prompt_assets: {
+      dna_summary_prompt: 'Alex Vance, a tech founder with round glasses and navy blazer',
+      locked_visual_prompt: 'Sharp photo of Alex Vance in minimalist tech studio',
+      preview_generation_prompt: 'Alex Vance smiling with wire-frame glasses',
+      scene_reuse_prompt_template: 'Alex Vance at clean modern desk',
+    },
+    timestamps: {
+      created_at: '2026-09-20T00:00:00.000Z',
+      updated_at: '2026-09-20T00:00:00.000Z',
     },
   };
 }
@@ -538,10 +544,10 @@ async function runCarouselProductionPathTests(): Promise<void> {
   // Test 15: candidate_type !== 'carousel' is blocked
   console.log("Test 15: candidate_type !== 'carousel' is blocked");
   {
-    const imageCandidate: any = {
+    const imageCandidate = {
       ...baseEff,
-      candidate_type: 'image',
-    };
+      candidate_type: 'image' as const,
+    } as unknown as CarouselProductionCandidate;
     const res = evaluateCarouselProductionGate({
       production_context: prodEngineCtx,
       source_item: mockItem,
@@ -904,9 +910,11 @@ async function runCarouselProductionPathTests(): Promise<void> {
   // Test 35: selectedCarouselId cannot override canonical candidate authority
   console.log('Test 35: selectedCarouselId cannot override canonical candidate authority');
   {
-    assert(effWithChar.candidate_id === 'carousel_plan', 'Canonical candidate ID must be carousel_plan');
+    const candId = effWithChar.candidate_id;
+    assert(candId === 'carousel_plan', 'Canonical candidate ID must be carousel_plan');
+    const legacyIds: string[] = ['A', 'B', 'C'];
     assert(
-      effWithChar.candidate_id !== 'A' && effWithChar.candidate_id !== 'B' && effWithChar.candidate_id !== 'C',
+      !legacyIds.includes(candId),
       'Candidate ID must never be legacy selectedCarouselId (A, B, C)'
     );
   }
@@ -1010,23 +1018,23 @@ async function runCarouselProductionPathTests(): Promise<void> {
   // Test 40: Fail-closed validation - missing or invalid visual_format returns null
   console.log('Test 40: Fail-closed validation - missing or invalid visual_format returns null');
   {
-    const missingFmtSlides: any[] = [
+    const missingFmtSlides = [
       { slide: 1, visual_format: 'photography' },
       { slide: 2, visual_format: 'infographic' },
       { slide: 3, visual_format: '' },
       { slide: 4, visual_format: 'infographic' },
       { slide: 5, visual_format: 'infographic' },
-    ];
+    ] as unknown as CanonicalCarouselSlideMetadata[];
     const res1 = buildEffectiveCarouselProductionCandidate(baseCand, missingFmtSlides, null);
     assert(res1 === null, 'Missing visual_format on slide 3 must return null');
 
-    const invalidFmtSlides: any[] = [
+    const invalidFmtSlides = [
       { slide: 1, visual_format: 'photography' },
       { slide: 2, visual_format: 'cinematic' }, // invalid format
       { slide: 3, visual_format: 'infographic' },
       { slide: 4, visual_format: 'infographic' },
       { slide: 5, visual_format: 'infographic' },
-    ];
+    ] as unknown as CanonicalCarouselSlideMetadata[];
     const res2 = buildEffectiveCarouselProductionCandidate(baseCand, invalidFmtSlides, null);
     assert(res2 === null, 'Invalid visual_format (cinematic) must return null');
   }
@@ -1074,7 +1082,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
     );
     // Slide 2 infographic must NOT include character face descriptions
     assert(
-      !effMixed.final_prompts.slides[1].prompt.includes(charDNA.visual_consistency.face_features),
+      !effMixed.final_prompts.slides[1].prompt.includes(charDNA.identity.facial_features || 'jawline'),
       'Slide 2 infographic must not include human face features'
     );
     // Slide 3 hybrid must include character reference

@@ -217,7 +217,7 @@ export default function ReviewPanel(props: any) {
               <ArrowRight size={12} className="text-stone-400 group-hover:text-primary group-hover:translate-x-0.5 transition" />
             </div>
             <p className="text-[11px] text-stone-500 line-clamp-2 leading-relaxed">
-              Naskah monolog dialog dan 3 scene Google Flow.
+              Naskah dialog multi-scene, arahan visual per scene, dan panduan produksi video terstruktur.
             </p>
           </button>
         </div>

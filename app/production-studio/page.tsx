@@ -4,7 +4,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import ImagePanel from '@/components/production-studio/ImagePanel';
 import CarouselPanel from '@/components/production-studio/CarouselPanel';
 import VideoPanel from '@/components/production-studio/VideoPanel';
-import UGCPanel from '@/components/production-studio/UGCPanel';
 import ReviewPanel from '@/components/production-studio/ReviewPanel';
 import { useRouter } from 'next/navigation';
 import { 
@@ -46,8 +45,7 @@ import {
   getVoiceoverCtaForFunnel, 
   FUNNEL_CONTENT_RULES, 
   FunnelStage,
-  countWords,
-  normalizeGoogleFlowDialogue
+  countWords
 } from '@/lib/funnel-rules';
 import { 
   getActiveProjectId, 
@@ -268,144 +266,7 @@ interface VideoStyle {
   productionCandidate?: VideoProductionCandidate;
 }
 
-interface UgcPack {
-  characterProfile: string;
-  characterReferenceImagePrompt: string;
-  scene1_image_prompt: string;
-  scene2_image_prompt: string;
-  scene3_image_prompt: string;
-  scene1_google_flow_prompt: string;
-  scene2_google_flow_prompt: string;
-  scene3_google_flow_prompt: string;
-  script_scene_1: string;
-  script_scene_2: string;
-  script_scene_3: string;
-}
-
 const getFunnelStageLabel = normalizeFunnelStage;
-
-interface GoogleFlowSceneItem {
-  sceneNumber: 1 | 2 | 3;
-  title: string;
-  role: string;
-  duration: string;
-  shotType: string;
-  dialogue: string;
-  googleFlowPrompt: string;
-  imagePrompt: string;
-}
-
-const buildGoogleFlowPromptString = (
-  shotType: string,
-  creatorDescriptor: string,
-  setting: string,
-  dialogue: string
-): string => {
-  const cleanShot = shotType.trim().replace(/\s+shot$/i, '');
-  const cleanDialogue = dialogue.replace(/[\r\n]+/g, ' ').replace(/"/g, "'").trim();
-  const cleanCreator = creatorDescriptor.trim();
-  const cleanSetting = setting.trim();
-  return `A 9:16 vertical ${cleanShot} shot of ${cleanCreator} ${cleanSetting}. The creator delivers a realistic monologue directly to the camera with natural mouth movements speaking in Indonesian synchronizing to: "${cleanDialogue}". Natural indoor lighting, UGC style, 8 seconds.`;
-};
-
-const getGoogleFlowVideoPack = (
-  stageInput: FunnelStage,
-  activeItem: ContentItem,
-  activeContext: SharedContentContext,
-  activeVideo: VideoStyle,
-  characterDNA?: CharacterDNA | null,
-  customCreator?: string,
-  customSetting?: string,
-  customDialogues?: { scene1?: string; scene2?: string; scene3?: string }
-): GoogleFlowSceneItem[] => {
-  const stage = normalizeFunnelStage(stageInput);
-  const brandName = activeContext?.brand_context?.brand_name || '';
-  const creator = customCreator?.trim() || 
-    characterDNA?.prompt_assets?.dna_summary_prompt ||
-    characterDNA?.identity?.display_name ||
-    'a 26-year-old Indonesian content creator wearing a casual beige shirt';
-  const setting = customSetting?.trim() || 
-    'in a modern minimalist room with natural ambient lighting';
-
-  // Extract raw dialogue sources
-  const rawScene1 = customDialogues?.scene1 || activeVideo?.script?.hook || activeVideo?.script?.masalah || activeItem?.headline || '';
-  const rawScene2 = customDialogues?.scene2 || activeVideo?.script?.solusi || activeContext?.strategy_context?.main_offer || activeItem?.body || '';
-  const rawScene3 = customDialogues?.scene3 || activeVideo?.script?.cta || activeItem?.cta || '';
-
-  // Stabilize and normalize dialogues strictly to 24-30 words (22-32 words bounds)
-  const scene1Dialogue = normalizeGoogleFlowDialogue(1, stage, rawScene1, activeContext);
-  const scene2Dialogue = normalizeGoogleFlowDialogue(2, stage, rawScene2, activeContext);
-  const scene3Dialogue = normalizeGoogleFlowDialogue(3, stage, rawScene3, activeContext);
-
-  let scene1Role = '';
-  let scene1Image = '';
-  let scene2Role = '';
-  let scene2Image = '';
-  let scene3Role = '';
-  let scene3Image = '';
-
-  if (stage === 'TOFU') {
-    scene1Role = 'Hook Curiosity & Problem Ringan';
-    scene1Image = `A 9:16 vertical realistic photo of ${creator} looking thoughtfully at the camera with an intriguing curious expression, ${setting}, natural indoor lighting, UGC style.`;
-
-    scene2Role = 'Insight Edukatif & Paradigma Baru';
-    scene2Image = `A 9:16 vertical realistic photo of ${creator} gesturing naturally while explaining an insightful concept to the camera, ${setting}, natural indoor lighting, UGC style.`;
-
-    scene3Role = 'Soft CTA (Simpan, Follow, Baca Lanjut)';
-    scene3Image = `A 9:16 vertical realistic photo of ${creator} giving a friendly warm smile and subtle thumbs up to the camera, ${setting}, natural indoor lighting, UGC style.`;
-  } else if (stage === 'MOFU') {
-    scene1Role = 'Problem Spesifik & Validasi Masalah';
-    scene1Image = `A 9:16 vertical realistic photo of ${creator} looking engaged and thoughtful, gesturing to explain a specific problem, ${setting}, natural indoor lighting, UGC style.`;
-
-    scene2Role = 'Framework & Solusi Terstruktur';
-    scene2Image = `A 9:16 vertical realistic photo of ${creator} holding a smartphone showing an organized dashboard with a satisfied expression, ${setting}, natural indoor lighting, UGC style.`;
-
-    scene3Role = 'Medium CTA (Cek Panduan, Lihat Demo, Lead Magnet)';
-    scene3Image = `A 9:16 vertical realistic photo of ${creator} pointing towards the bio link with an encouraging, inviting expression, ${setting}, natural indoor lighting, UGC style.`;
-  } else {
-    scene1Role = 'Objection Handling & Social Proof';
-    scene1Image = `A 9:16 vertical realistic photo of ${creator} smiling confidently directly at the camera with genuine conviction, ${setting}, natural indoor lighting, UGC style.`;
-
-    scene2Role = 'Offer & Benefit Utama';
-    scene2Image = `A 9:16 vertical realistic photo of ${creator} presenting a clear offer on a digital device with a welcoming posture, ${setting}, natural indoor lighting, UGC style.`;
-
-    scene3Role = 'Hard CTA (Daftar, Beli, Konsultasi)';
-    scene3Image = `A 9:16 vertical realistic photo of ${creator} making an inviting gesture with high energy and friendly authority, ${setting}, natural indoor lighting, UGC style.`;
-  }
-
-  return [
-    {
-      sceneNumber: 1,
-      title: 'Scene 1 • Hook',
-      role: scene1Role,
-      duration: '8 detik',
-      shotType: 'close-up',
-      dialogue: scene1Dialogue,
-      imagePrompt: injectCharacterToPrompt(scene1Image, characterDNA, 'video'),
-      googleFlowPrompt: buildGoogleFlowPromptString('close-up', creator, setting, scene1Dialogue)
-    },
-    {
-      sceneNumber: 2,
-      title: 'Scene 2 • Insight / Solution / Proof',
-      role: scene2Role,
-      duration: '8 detik',
-      shotType: 'medium close-up',
-      dialogue: scene2Dialogue,
-      imagePrompt: injectCharacterToPrompt(scene2Image, characterDNA, 'video'),
-      googleFlowPrompt: buildGoogleFlowPromptString('medium close-up', creator, setting, scene2Dialogue)
-    },
-    {
-      sceneNumber: 3,
-      title: 'Scene 3 • CTA',
-      role: scene3Role,
-      duration: '8 detik',
-      shotType: 'medium',
-      dialogue: scene3Dialogue,
-      imagePrompt: injectCharacterToPrompt(scene3Image, characterDNA, 'video'),
-      googleFlowPrompt: buildGoogleFlowPromptString('medium', creator, setting, scene3Dialogue)
-    }
-  ];
-};
 
 const tryParseJSON = (text: string) => {
   if (!text) return null;
@@ -2427,10 +2288,10 @@ function validateAndNormalizeVideoStyles(
 
 // Pure top-level function for building high-converting initial drafts for instant feedback
 const getInitialDraft = (
-  tab: 'review' | 'image' | 'carousel' | 'video' | 'ugc',
+  tab: 'review' | 'image' | 'carousel' | 'video',
   currentItem?: ContentItem | null,
   currentContext?: SharedContentContext | null
-) => {
+): string => {
   if (!currentItem || !currentContext || !currentContext.brand_context?.brand_name?.trim()) return '';
   const activeItem = currentItem;
   const activeContext: SharedContentContext = currentContext;
@@ -3244,31 +3105,8 @@ Image/Illustration Direction: Clean minimalist social media closing card.`,
       ];
       return JSON.stringify(vStyles, null, 2);
     }
-
-    case 'ugc': {
-      const brandName = activeContext.brand_context?.brand_name || '';
-      const creator = 'a 26-year-old Indonesian content creator wearing a casual beige shirt';
-      const setting = 'in a modern minimalist room with natural ambient lighting';
-
-      const scene1Script = normalizeGoogleFlowDialogue(1, funnelStage, activeItem?.headline || '', activeContext);
-      const scene2Script = normalizeGoogleFlowDialogue(2, funnelStage, activeItem?.body || '', activeContext);
-      const scene3Script = normalizeGoogleFlowDialogue(3, funnelStage, activeItem?.cta || voiceoverCta || '', activeContext);
-
-      const ugcData = {
-        characterProfile: `Berusia 22-35 tahun, percaya diri di depan kamera, berpenampilan rapi, bergaya kasual-profesional. Nada bicara antusias, energik, dan bersahabat seolah-olah merekomendasikan solusi rahasia ke sahabat dekat.`,
-        characterReferenceImagePrompt: `A highly detailed commercial portrait of a 28-year-old Indonesian content creator smiling warmly, wearing a casual beige blazer over a white t-shirt, clean aesthetic minimal background, soft studio lighting, 85mm lens, photorealistic.`,
-        scene1_image_prompt: `A 9:16 vertical realistic photo of ${creator} looking thoughtfully at the camera with an intriguing curious expression, ${setting}, natural indoor lighting, UGC style.`,
-        scene2_image_prompt: `A 9:16 vertical realistic photo of ${creator} gesturing naturally while explaining an insightful concept to the camera, ${setting}, natural indoor lighting, UGC style.`,
-        scene3_image_prompt: `A 9:16 vertical realistic photo of ${creator} making an inviting gesture with high energy and friendly authority, ${setting}, natural indoor lighting, UGC style.`,
-        scene1_google_flow_prompt: buildGoogleFlowPromptString('close-up', creator, setting, scene1Script),
-        scene2_google_flow_prompt: buildGoogleFlowPromptString('medium close-up', creator, setting, scene2Script),
-        scene3_google_flow_prompt: buildGoogleFlowPromptString('medium', creator, setting, scene3Script),
-        script_scene_1: scene1Script,
-        script_scene_2: scene2Script,
-        script_scene_3: scene3Script
-      };
-      return JSON.stringify(ugcData, null, 2);
-    }
+    default:
+      return '';
   }
 };
 
@@ -3310,13 +3148,11 @@ export default function ProductionStudioPage() {
     useState<ProductionOutputSource>('none');
   const [videoOutputSource, setVideoOutputSource] =
     useState<ProductionOutputSource>('none');
-  const [ugcOutput, setUgcOutput] = useState<string>('');
   const [reviewOutput, setReviewOutput] = useState<string>('');
   const [revisionNotes, setRevisionNotes] = useState<string>('');
 
   // Selected sub-tabs inside Production Studio
   const [selectedAngleId, setSelectedAngleId] = useState<'A' | 'B' | 'C'>('A');
-  const [selectedCarouselId, setSelectedCarouselId] = useState<'A' | 'B' | 'C'>('A');
   const [selectedVideoProductionMode, setSelectedVideoProductionMode] = useState<VideoProductionMode>('human_led');
   const [userSelectedVideoModeByItem, setUserSelectedVideoModeByItem] = useState<Record<string, VideoProductionMode>>({});
   const [activeSlideNumber, setActiveSlideNumber] = useState<number>(1);
@@ -3388,11 +3224,6 @@ export default function ProductionStudioPage() {
       productAssetContext,
     });
   }, [productionEngineContext, selectedVideoProductionMode, productAssetContext]);
-
-  // Video Mode state
-  const [flowCustomCreator, setFlowCustomCreator] = useState<string>('');
-  const [flowCustomSetting, setFlowCustomSetting] = useState<string>('');
-  const [flowCustomDialogues, setFlowCustomDialogues] = useState<{ [key: string]: { scene1?: string; scene2?: string; scene3?: string } }>({});
 
   const handleSelectVideoProductionMode = (mode: VideoProductionMode) => {
     setSelectedVideoProductionMode(mode);
@@ -3639,7 +3470,6 @@ export default function ProductionStudioPage() {
     setCarouselOutputSource('none');
     setVideoOutput('');
     setVideoOutputSource('none');
-    setUgcOutput('');
     setReviewOutput('');
     setRevisionNotes('');
     setSourceItem(null);
@@ -3754,7 +3584,6 @@ export default function ProductionStudioPage() {
         const storedImage = loadProjectData(resolvedCanonicalId, `studio_image_${itemKey}`);
         const storedCarousel = loadProjectData(resolvedCanonicalId, `studio_carousel_${itemKey}`);
         const storedVideo = loadProjectData(resolvedCanonicalId, `studio_video_${itemKey}`);
-        const storedUgc = loadProjectData(resolvedCanonicalId, `studio_ugc_${itemKey}`);
         const storedReview = loadProjectData(resolvedCanonicalId, `studio_review_${itemKey}`);
         const storedRevision = loadProjectData(resolvedCanonicalId, `studio_revision_${itemKey}`);
 
@@ -3789,15 +3618,6 @@ export default function ProductionStudioPage() {
           }
           setVideoOutput(getInitialDraft('video', resolvedItem, parsedContext));
           setVideoOutputSource('initial_draft');
-        }
-
-        if (storedUgc && !isErrorContent(storedUgc)) {
-          setUgcOutput(storedUgc);
-        } else {
-          if (storedUgc && isErrorContent(storedUgc)) {
-            removeProjectData(resolvedCanonicalId, `studio_ugc_${itemKey}`);
-          }
-          setUgcOutput(getInitialDraft('ugc', resolvedItem, parsedContext));
         }
 
         if (storedReview && !isErrorContent(storedReview)) {
@@ -3842,13 +3662,6 @@ export default function ProductionStudioPage() {
     if (sourceItem && canonicalProjectId) {
       const itemKey = getItemKey(sourceItem);
       saveProjectData(canonicalProjectId, `studio_video_${itemKey}`, val);
-    }
-  };
-  const saveUgcOutput = (val: string) => {
-    setUgcOutput(val);
-    if (sourceItem && canonicalProjectId) {
-      const itemKey = getItemKey(sourceItem);
-      saveProjectData(canonicalProjectId, `studio_ugc_${itemKey}`, val);
     }
   };
   const saveReviewOutput = (val: string) => {
@@ -4553,12 +4366,12 @@ ${formatDirection}${revisionDirective}`;
     };
   }, [sharedContextSnapshot, canonicalProjectId]);
 
-  const currentOutputText = useMemo(() => {
+  const currentOutputText = useMemo<string>(() => {
     if (!activeItem) return '';
-    if (activeTab === 'image') return imageOutput;
-    if (activeTab === 'carousel') return carouselOutput;
-    if (activeTab === 'video') return videoOutput;
-    if (activeTab === 'review') return reviewOutput || getInitialDraft('review', activeItem, activeContext);
+    if (activeTab === 'image') return imageOutput || '';
+    if (activeTab === 'carousel') return carouselOutput || '';
+    if (activeTab === 'video') return videoOutput || '';
+    if (activeTab === 'review') return reviewOutput || (activeContext ? getInitialDraft('review', activeItem, activeContext) : '');
     return '';
   }, [activeTab, imageOutput, carouselOutput, videoOutput, reviewOutput, activeItem, activeContext]);
 
@@ -4579,7 +4392,7 @@ ${formatDirection}${revisionDirective}`;
 
   // Memoized parsed image angles package
   const imageAnglesPackage = useMemo<ImageAnglesPackage | null>(() => {
-    if (!activeItem) return null;
+    if (!activeItem || !activeContext) return null;
     const canAttachImageCandidate = isAuthoritativeProductionOutputSource(imageOutputSource);
     const textToParse = imageOutput || getInitialDraft('image', activeItem, activeContext);
     const normalizedJson = validateAndNormalizeImageAngles(textToParse, activeItem, activeContext, canAttachImageCandidate);
@@ -4654,6 +4467,7 @@ ${formatDirection}${revisionDirective}`;
 
   // Memoized parsed carousel plan
   const carouselPlan = useMemo<CarouselPlan | null>(() => {
+    if (!activeItem || !activeContext) return null;
     const attachCandidate = isAuthoritativeProductionOutputSource(carouselOutputSource);
     const textToParse = carouselOutput || getInitialDraft('carousel', activeItem, activeContext);
     const normalized = validateAndNormalizeCarouselPlan(textToParse, activeItem, activeContext, attachCandidate);
@@ -4690,12 +4504,14 @@ ${formatDirection}${revisionDirective}`;
   }, [effectiveCarouselCandidate]);
 
   const normalizedCarouselOutput = useMemo(() => {
+    if (!activeItem || !activeContext) return carouselOutput || '';
     const attachCandidate = isAuthoritativeProductionOutputSource(carouselOutputSource);
     const textToParse = carouselOutput || getInitialDraft('carousel', activeItem, activeContext);
     return validateAndNormalizeCarouselPlan(textToParse, activeItem, activeContext, attachCandidate) || carouselOutput;
   }, [carouselOutput, carouselOutputSource, activeItem, activeContext]);
 
   const normalizedVideoOutput = useMemo(() => {
+    if (!activeItem || !activeContext) return videoOutput || '';
     const attachCandidate = isAuthoritativeProductionOutputSource(videoOutputSource);
     const textToParse = videoOutput || getInitialDraft('video', activeItem, activeContext);
     return validateAndNormalizeVideoStyles(textToParse, activeItem, activeContext, attachCandidate) || videoOutput;
@@ -5263,21 +5079,18 @@ ${formatDirection}${revisionDirective}`;
   // Render content of active tab dynamically with premium workshop components
   const renderTabContent = () => {
     const funnelRules = getFunnelRules(normalizeFunnelStage(activeItem?.jenis || ""));
-    const handleProceedToProduction = () => {};
     const commonProps = {
       activeItem, activeContext, imageAnglesPackage, selectedAngleId, setSelectedAngleId,
       generatedImages, imageGeneratingKey, handleCopyText, copiedStates, handleGenerateImage,
       nextStepVisibleKeys, setNextStepVisibleKeys, handleDismissNextStep,
-      imageOutput, getInitialDraft, funnelRules, selectedCarouselId,
-      setSelectedCarouselId, activeSlideNumber, setActiveSlideNumber, 
+      imageOutput, getInitialDraft, funnelRules,
+      activeSlideNumber, setActiveSlideNumber, 
       carouselOutput: normalizedCarouselOutput, carouselPlan, videoOutput: normalizedVideoOutput, tryParseJSON, normalizeFunnelStage, getFunnelRules,
       selectedVideoProductionMode, handleSelectVideoProductionMode, showToast,
       recommendedVideoProductionMode, videoIntentDecision, handleUseRecommendation,
-      flowCustomCreator, setFlowCustomCreator,
-      flowCustomSetting, setFlowCustomSetting, flowCustomDialogues, setFlowCustomDialogues,
-      ugcOutput, sourceItem,
+      sourceItem,
       handleDownloadImage, imageGenerateError,
-      characterDNA, getGoogleFlowVideoPack, setActiveTab,
+      characterDNA, setActiveTab,
       savedCharacters, selectedCharacterId, handleSelectCharacter, handleCreateCharacterClick,
       productAssetContext, setProductAssetContext: saveProductAssetContext, videoProductionReadiness,
       videoSceneCompletionState, handleToggleSceneCompletion,
@@ -5812,7 +5625,6 @@ ${formatDirection}${revisionDirective}`;
                 activeContext={activeContext} 
                 funnelRules={getFunnelRules(normalizeFunnelStage(activeItem?.jenis || ""))} 
                 readinessChecklist={readinessChecklist} 
-                handleProceedToProduction={() => {}} 
                 isEditingMode={isEditingMode}
                 setIsEditingMode={setIsEditingMode}
                 reviewOutput={reviewOutput}
@@ -5860,7 +5672,7 @@ ${formatDirection}${revisionDirective}`;
                     </div>
 
                     <button
-                      onClick={() => handleCopyText(activeTab, currentOutputText, 'none')}
+                      onClick={() => handleCopyText(activeTab, currentOutputText || '', 'none')}
                       className="p-2 hover:bg-stone-100 text-stone-600 hover:text-stone-900 rounded-xl border border-[#e7e0d4] bg-[#fffdf8] transition-all shadow-xs cursor-pointer"
                       title="Salin Naskah"
                     >
