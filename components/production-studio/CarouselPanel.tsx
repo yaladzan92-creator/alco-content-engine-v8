@@ -29,6 +29,7 @@ export default function CarouselPanel(props: any) {
     activeSlideNumber,
     setActiveSlideNumber,
     carouselOutput,
+    carouselPlan,
     getInitialDraft,
     tryParseJSON,
     savedCharacters,
@@ -45,21 +46,7 @@ export default function CarouselPanel(props: any) {
     carouselProductionPackagePrepared,
   } = props;
 
-  let plan: any | null = activeItem?.carousel_plan || null;
-
-  if (!plan) {
-    const rawOutput = carouselOutput || getInitialDraft('carousel', activeItem, activeContext);
-    if (rawOutput) {
-      const parsed = tryParseJSON(rawOutput);
-      if (parsed && typeof parsed === 'object') {
-        if ('slides' in parsed && Array.isArray(parsed.slides)) {
-          plan = parsed;
-        } else if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.slides) {
-          plan = parsed[0];
-        }
-      }
-    }
-  }
+  const plan = carouselPlan || null;
 
   if (!plan || !plan.slides || plan.slides.length === 0) {
     return (

@@ -4366,7 +4366,7 @@ assert(
 
 // VARCH-A23: handleGenerateWithAI video and carousel branches do not call saveProductionPackage
 const handleGenAIStart = pageStudioSourceLatest.indexOf('const handleGenerateWithAI =');
-const handleGenAIEnd = pageStudioSourceLatest.indexOf('const renderTabContent =');
+const handleGenAIEnd = pageStudioSourceLatest.indexOf('const getOptimizationButtonLabel =');
 assert(
   handleGenAIStart !== -1 && handleGenAIEnd !== -1 && handleGenAIEnd > handleGenAIStart,
   'Test VARCH-A23a: handleGenerateWithAI function isolated successfully in page.tsx'

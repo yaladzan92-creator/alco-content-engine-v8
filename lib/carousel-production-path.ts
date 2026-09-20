@@ -5,12 +5,16 @@ import { injectCharacterToPrompt } from './character-prompt';
 
 export interface CanonicalCarouselSlideMetadata {
   slide: number;
-  visual_format?: 'photography' | 'infographic' | 'hybrid' | string;
-  slide_image_prompt?: string;
+  visual_format: 'photography' | 'infographic' | 'hybrid';
 }
 
 /**
  * Builds the CURRENT EFFECTIVE CarouselProductionCandidate.
+ *
+ * Requires:
+ * 1. base CarouselProductionCandidate
+ * 2. canonical Carousel slide metadata (with explicit visual_format: photography | infographic | hybrid)
+ * 3. CharacterDNA | null
  *
  * Ensures that if CharacterDNA is active, the candidate's final_prompts
  * match the exact character-injected prompts shown to and copied by the user
@@ -21,8 +25,8 @@ export interface CanonicalCarouselSlideMetadata {
  */
 export function buildEffectiveCarouselProductionCandidate(
   baseCandidate: CarouselProductionCandidate,
-  canonicalSlidesOrDNA?: CanonicalCarouselSlideMetadata[] | CharacterDNA | null,
-  maybeCharacterDNA?: CharacterDNA | null
+  canonicalSlides: CanonicalCarouselSlideMetadata[],
+  characterDNA: CharacterDNA | null
 ): CarouselProductionCandidate | null {
   if (!baseCandidate || typeof baseCandidate !== 'object') {
     return null;
@@ -48,21 +52,8 @@ export function buildEffectiveCarouselProductionCandidate(
     return null;
   }
 
-  let canonicalSlides: CanonicalCarouselSlideMetadata[] | null = null;
-  let characterDNA: CharacterDNA | null = null;
-
-  if (Array.isArray(canonicalSlidesOrDNA)) {
-    canonicalSlides = canonicalSlidesOrDNA;
-    characterDNA = maybeCharacterDNA ?? null;
-  } else if (
-    canonicalSlidesOrDNA &&
-    typeof canonicalSlidesOrDNA === 'object' &&
-    'identity' in canonicalSlidesOrDNA
-  ) {
-    characterDNA = canonicalSlidesOrDNA;
-    canonicalSlides = null;
-  } else {
-    characterDNA = maybeCharacterDNA ?? null;
+  if (!Array.isArray(canonicalSlides)) {
+    return null;
   }
 
   const slideCount = baseCandidate.production_details.slide_count;
@@ -74,47 +65,62 @@ export function buildEffectiveCarouselProductionCandidate(
     return null;
   }
 
-  const effectiveCanonicalSlides: CanonicalCarouselSlideMetadata[] =
-    canonicalSlides && Array.isArray(canonicalSlides)
-      ? canonicalSlides
-      : baseCandidate.production_details.slides.map((s) => ({
-          slide: s.slide_number,
-          visual_format: s.slide_number === 1 ? 'photography' : 'infographic',
-        }));
-
   // 3. Require slide counts to align between candidate details, prompts, and canonical slides
   if (
     baseCandidate.production_details.slides.length !== slideCount ||
     baseCandidate.final_prompts.slides.length !== slideCount ||
-    effectiveCanonicalSlides.length !== slideCount
+    canonicalSlides.length !== slideCount
   ) {
     return null;
   }
 
-  // 4. Build transformed slide prompts
-  const effectiveSlidePrompts = baseCandidate.final_prompts.slides.map((baseSlidePrompt, index) => {
+  // 4. Strict Canonical Slide Validation:
+  // - each slide number 1..slideCount exists exactly once
+  // - no duplicates
+  // - valid visual_format ('photography' | 'infographic' | 'hybrid')
+  const validFormats = new Set<string>(['photography', 'infographic', 'hybrid']);
+  const seenSlideNumbers = new Set<number>();
+
+  for (const s of canonicalSlides) {
+    if (!s || typeof s !== 'object') return null;
+    if (typeof s.slide !== 'number' || !Number.isInteger(s.slide)) return null;
+    if (s.slide < 1 || s.slide > slideCount) return null;
+    if (seenSlideNumbers.has(s.slide)) return null;
+    seenSlideNumbers.add(s.slide);
+
+    if (!s.visual_format || typeof s.visual_format !== 'string') return null;
+    if (!validFormats.has(s.visual_format)) return null;
+  }
+
+  if (seenSlideNumbers.size !== slideCount) {
+    return null;
+  }
+
+  // 5. Build transformed slide prompts using exact canonical visual_format
+  const effectiveSlidePrompts: { slide_number: number; prompt: string }[] = [];
+  for (let index = 0; index < baseCandidate.final_prompts.slides.length; index++) {
+    const baseSlidePrompt = baseCandidate.final_prompts.slides[index];
     const slideNumber = index + 1;
-    const matchingCanonicalSlide = effectiveCanonicalSlides.find(
+    const matchingCanonicalSlide = canonicalSlides.find(
       (s) => s.slide === slideNumber
     );
-
-    const visualFormat =
-      matchingCanonicalSlide?.visual_format ||
-      (slideNumber === 1 ? 'photography' : 'infographic');
+    if (!matchingCanonicalSlide) {
+      return null;
+    }
 
     const effectivePrompt = injectCharacterToPrompt(
       baseSlidePrompt.prompt,
       characterDNA,
-      visualFormat
+      matchingCanonicalSlide.visual_format
     );
 
-    return {
+    effectiveSlidePrompts.push({
       slide_number: slideNumber,
       prompt: effectivePrompt,
-    };
-  });
+    });
+  }
 
-  // 5. Build a NEW immutable CarouselProductionCandidate
+  // 6. Build a NEW immutable CarouselProductionCandidate
   const effectiveCandidate: CarouselProductionCandidate = {
     candidate_id: baseCandidate.candidate_id,
     candidate_type: 'carousel',
@@ -140,7 +146,7 @@ export function buildEffectiveCarouselProductionCandidate(
     },
   };
 
-  // 9. Validate final effective candidate
+  // 7. Validate final effective candidate
   const effectiveValidation = validateProductionCandidate(effectiveCandidate);
   if (!effectiveValidation.isValid) {
     return null;

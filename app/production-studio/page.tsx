@@ -5270,7 +5270,7 @@ ${formatDirection}${revisionDirective}`;
       nextStepVisibleKeys, setNextStepVisibleKeys, handleDismissNextStep,
       imageOutput, getInitialDraft, funnelRules, selectedCarouselId,
       setSelectedCarouselId, activeSlideNumber, setActiveSlideNumber, 
-      carouselOutput: normalizedCarouselOutput, videoOutput: normalizedVideoOutput, tryParseJSON, normalizeFunnelStage, getFunnelRules,
+      carouselOutput: normalizedCarouselOutput, carouselPlan, videoOutput: normalizedVideoOutput, tryParseJSON, normalizeFunnelStage, getFunnelRules,
       selectedVideoProductionMode, handleSelectVideoProductionMode, showToast,
       recommendedVideoProductionMode, videoIntentDecision, handleUseRecommendation,
       flowCustomCreator, setFlowCustomCreator,
