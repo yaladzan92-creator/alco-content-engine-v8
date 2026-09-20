@@ -42,10 +42,20 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 // Polyfill localStorage in Node test environment
-if (typeof (global as any).window === 'undefined') {
+interface GlobalScopeWithStorage {
+  window?: unknown;
+  localStorage?: {
+    getItem: (key: string) => string | null;
+    setItem: (key: string, val: string) => void;
+    removeItem: (key: string) => void;
+    clear: () => void;
+  };
+}
+const globalScope = globalThis as unknown as GlobalScopeWithStorage;
+if (typeof globalScope.window === 'undefined') {
   const store: Record<string, string> = {};
-  (global as any).window = {};
-  (global as any).localStorage = {
+  globalScope.window = {};
+  globalScope.localStorage = {
     getItem: (key: string) => store[key] || null,
     setItem: (key: string, val: string) => {
       store[key] = String(val);
@@ -265,7 +275,10 @@ assert(res7.is_allowed === false, 'Test 7 must be blocked');
 
 // TEST 8: invalid ProductionEngineContext → blocked
 console.log('Test 8: invalid ProductionEngineContext is blocked');
-const invalidContext = { ...validProductionContext, canonical_funnel_stage: 'INVALID_STAGE' as any };
+const invalidContext = {
+  ...validProductionContext,
+  canonical_funnel_stage: 'INVALID_STAGE',
+} as unknown as ProductionEngineContext;
 const res8 = evaluateVideoProductionGate({ ...makeBaseParams(), production_context: invalidContext });
 assert(res8.is_allowed === false, 'Test 8 must be blocked');
 
@@ -282,7 +295,11 @@ assert(res10.is_allowed === false, 'Test 10 must be blocked');
 
 // TEST 11: invalid selected mode → blocked
 console.log('Test 11: invalid selected mode is blocked');
-const res11 = evaluateVideoProductionGate({ ...makeBaseParams(), selected_mode: 'cinematic_trailer' as any });
+const invalidModeParams: EvaluateVideoProductionGateParams = {
+  ...makeBaseParams(),
+  selected_mode: 'cinematic_trailer' as unknown as VideoProductionMode,
+};
+const res11 = evaluateVideoProductionGate(invalidModeParams);
 assert(res11.is_allowed === false, 'Test 11 must be blocked');
 
 // TEST 12: selected candidate null → blocked
@@ -308,7 +325,10 @@ assert(res13.is_allowed === false, 'Test 13 must be blocked');
 
 // TEST 14: invalid candidate schema → blocked
 console.log('Test 14: invalid candidate schema is blocked');
-const invalidCand = { ...validCandidateMotion, candidate_type: 'image' as any };
+const invalidCand = {
+  ...validCandidateMotion,
+  candidate_type: 'image',
+} as unknown as VideoProductionCandidate;
 const res14 = evaluateVideoProductionGate({ ...makeBaseParams(), selected_candidate: invalidCand });
 assert(res14.is_allowed === false, 'Test 14 must be blocked');
 
@@ -487,12 +507,84 @@ assert(loadedPackage !== null, 'Loaded package must not be null');
 assert(loadedPackage?.package_id === packageMetadata.package_id, 'Loaded package ID must match saved package ID');
 assert(loadedPackage?.asset_type === 'video', 'Loaded package asset_type must be video');
 
+console.log('\n--- RUNNING PHASE 3D-C CORRECTIVE FIX REGRESSION TESTS (A - D) ---');
+
+// TEST A — Foreign project sourceItem
+console.log('Test A: Foreign project sourceItem is blocked');
+const foreignProjectItem: ContentItem = {
+  ...baseContentItem,
+  project_id: 'proj_beta',
+  projectId: 'proj_beta',
+  content_item_id: 'item_gate_video_001',
+};
+const resA = evaluateVideoProductionGate({
+  ...makeBaseParams(),
+  source_item: foreignProjectItem,
+});
+assert(resA.is_allowed === false, 'Test A must be blocked when source_item project_id is foreign');
+assert(
+  resA.blockers.some((b) => b.includes('Identitas project pada source_item tidak cocok')),
+  'Test A must have project mismatch blocker'
+);
+
+// TEST B — project_id / projectId disagreement
+console.log('Test B: project_id / projectId disagreement is blocked');
+const disagreeItem: ContentItem = {
+  ...baseContentItem,
+  project_id: 'proj_gate_video_001',
+  projectId: 'proj_beta_disagree',
+  content_item_id: 'item_gate_video_001',
+};
+const resB = evaluateVideoProductionGate({
+  ...makeBaseParams(),
+  source_item: disagreeItem,
+});
+assert(resB.is_allowed === false, 'Test B must be blocked when project_id and projectId disagree');
+assert(
+  resB.blockers.some((b) => b.includes('Identitas project_id dan projectId pada source_item tidak cocok')),
+  'Test B must have project_id / projectId disagreement blocker'
+);
+
+// TEST C — Valid matching project identity
+console.log('Test C: Valid matching project identity is allowed');
+const matchingItem: ContentItem = {
+  ...baseContentItem,
+  project_id: 'proj_gate_video_001',
+  projectId: 'proj_gate_video_001',
+  content_item_id: 'item_gate_video_001',
+};
+const resC = evaluateVideoProductionGate({
+  ...makeBaseParams(),
+  source_item: matchingItem,
+});
+assert(resC.is_allowed === true, 'Test C must be allowed with matching project identity');
+assert(resC.blockers.length === 0, 'Test C must have zero blockers');
+
+// TEST D — Missing sourceItem project identity
+console.log('Test D: Missing sourceItem project identity is blocked');
+const noProjectItem: ContentItem = {
+  ...baseContentItem,
+  project_id: '',
+  projectId: undefined,
+  content_item_id: 'item_gate_video_001',
+};
+const resD = evaluateVideoProductionGate({
+  ...makeBaseParams(),
+  source_item: noProjectItem,
+});
+assert(resD.is_allowed === false, 'Test D must be blocked when project identity is missing');
+assert(
+  resD.blockers.some((b) => b.includes('setidaknya satu identitas project')),
+  'Test D must have missing project identity blocker'
+);
+
 // STATIC REGRESSION GUARDS
 console.log('\n--- RUNNING STATIC REGRESSION GUARDS ---');
 
 const gateFile = fs.readFileSync(path.join(__dirname, '../lib/video-production-gate.ts'), 'utf-8');
 const pageFile = fs.readFileSync(path.join(__dirname, '../app/production-studio/page.tsx'), 'utf-8');
 const panelFile = fs.readFileSync(path.join(__dirname, '../components/production-studio/VideoPanel.tsx'), 'utf-8');
+const thisTestFile = fs.readFileSync(__filename, 'utf-8');
 
 // Positive assertions
 console.log('Checking required positive terms:');
@@ -503,6 +595,50 @@ assert(pageFile.includes('isAuthoritativeProductionOutputSource'), 'page.tsx mus
 assert(pageFile.includes('evaluateVideoProductionGate'), 'page.tsx must call evaluateVideoProductionGate');
 assert(panelFile.includes('videoProductionGate'), 'VideoPanel.tsx must consume videoProductionGate');
 assert(panelFile.includes('handlePrepareVideoProductionPackage'), 'VideoPanel.tsx must call handlePrepareVideoProductionPackage');
+
+// Strict SourceItem Project Isolation Static Guards
+console.log('Checking sourceItem project isolation static guards:');
+assert(
+  gateFile.includes('params.production_context.project_id'),
+  'lib/video-production-gate.ts must explicitly compare against production_context.project_id'
+);
+assert(
+  gateFile.includes('rawProjectId !== rawLegacyProjectId'),
+  'lib/video-production-gate.ts must detect project_id and projectId disagreement'
+);
+
+// TEST E & F: Prepared state architecture static guards
+console.log('Checking TEST E & TEST F prepared state architecture:');
+assert(
+  !pageFile.includes("loadProductionPackage(canonicalProjectId, sourceItem.content_item_id, 'video')"),
+  'page.tsx must NOT restore videoProductionPackagePrepared from loadProductionPackage'
+);
+assert(
+  !pageFile.includes("loadProductionPackage"),
+  'page.tsx must NOT import or use loadProductionPackage'
+);
+assert(
+  pageFile.includes('setVideoProductionPackagePrepared(true)'),
+  'page.tsx must set videoProductionPackagePrepared to true after saving'
+);
+
+// Verify reset useEffect dependencies (TEST F)
+assert(
+  pageFile.includes('canonicalProjectId,\n    sourceItem?.content_item_id,\n    selectedVideoProductionMode,\n    activeVideoCandidate?.candidate_id,\n    currentScenePlanSignature,\n    currentVideoProductionInputSignature,\n    videoOutputSource,'),
+  'page.tsx must reset videoProductionPackagePrepared on all canonical identity dependencies'
+);
+
+// TEST G: No (prepResult as any).error in Phase 3D-C package section
+console.log('Checking TEST G: No prepResult as any in Phase 3D-C package section');
+const videoPackageSection = pageFile.slice(pageFile.indexOf('handlePrepareVideoProductionPackage'));
+assert(!videoPackageSection.includes('(prepResult as any)'), 'Phase 3D-C package section must NOT contain (prepResult as any)');
+assert(!videoPackageSection.includes('prepResult as any'), 'Phase 3D-C package section must NOT contain prepResult as any');
+
+// TEST H: No as any in this test file
+console.log('Checking TEST H: No as any in scripts/test-video-production-gate.ts');
+const codeWithoutStaticChecks = thisTestFile.split('STATIC REGRESSION GUARDS')[0];
+assert(!codeWithoutStaticChecks.includes('as ' + 'any'), 'scripts/test-video-production-gate.ts must contain zero as any');
+assert(!codeWithoutStaticChecks.includes(': ' + 'any'), 'scripts/test-video-production-gate.ts must contain zero : any');
 
 // Negative assertions
 console.log('Checking forbidden patterns:');
@@ -518,4 +654,4 @@ assert(!pageFile.includes('Veo'), 'page.tsx must NOT refer to Veo internal video
 assert(!pageFile.includes('Flow API'), 'page.tsx must NOT refer to Flow API');
 assert(!panelFile.includes('automatic clip completion'), 'VideoPanel must NOT contain automatic clip completion');
 
-console.log('\nALL 36 VIDEO PRODUCTION GATE TESTS AND STATIC REGRESSION CHECKS PASSED!');
+console.log('\nALL 36 VIDEO PRODUCTION GATE TESTS, TESTS A-D, AND STATIC REGRESSION CHECKS PASSED!');

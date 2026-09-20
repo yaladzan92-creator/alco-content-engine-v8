@@ -73,7 +73,7 @@ import {
   isAuthoritativeProductionOutputSource,
 } from '@/lib/production-output-source';
 import { prepareProductionPackage } from '@/lib/production-package-workflow';
-import { saveProductionPackage, loadProductionPackage } from '@/lib/production-package-storage';
+import { saveProductionPackage } from '@/lib/production-package-storage';
 import { ProductionPackageMetadata } from '@/lib/production-engine';
 import { evaluateVideoProductionGate } from '@/lib/video-production-gate';
 import { injectCharacterToPrompt } from '@/lib/character-prompt';
@@ -4804,21 +4804,19 @@ ${formatDirection}${revisionDirective}`;
   const [videoProductionPackagePrepared, setVideoProductionPackagePrepared] =
     useState<boolean>(false);
 
-  // Sync prepared state strictly scoped to (canonicalProjectId, sourceItem?.content_item_id)
+  // Reset prepared state when any production identity affecting current video package changes
   useEffect(() => {
-    if (!canonicalProjectId || !sourceItem?.content_item_id) {
-      setVideoProductionPackagePrepared(false);
-      setVideoProductionPackageError(null);
-      return;
-    }
-    const existingPkg = loadProductionPackage(
-      canonicalProjectId,
-      sourceItem.content_item_id,
-      'video'
-    );
-    setVideoProductionPackagePrepared(Boolean(existingPkg && existingPkg.asset_type === 'video'));
+    setVideoProductionPackagePrepared(false);
     setVideoProductionPackageError(null);
-  }, [canonicalProjectId, sourceItem?.content_item_id]);
+  }, [
+    canonicalProjectId,
+    sourceItem?.content_item_id,
+    selectedVideoProductionMode,
+    activeVideoCandidate?.candidate_id,
+    currentScenePlanSignature,
+    currentVideoProductionInputSignature,
+    videoOutputSource,
+  ]);
 
   // Video Production Gate Evaluation
   const videoProductionGate = useMemo(() => {
@@ -4926,9 +4924,9 @@ ${formatDirection}${revisionDirective}`;
       metadata: packageMetadata,
     });
 
-    if (!prepResult.ok || !prepResult.package) {
+    if (!prepResult.ok) {
       const prepErr =
-        (!prepResult.ok ? (prepResult as any).error : null) ||
+        prepResult.error ||
         'Gagal menyiapkan production package video.';
       setVideoProductionPackageError(prepErr);
       setVideoProductionPackagePreparing(false);

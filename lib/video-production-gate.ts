@@ -83,25 +83,72 @@ export function evaluateVideoProductionGate(
     }
   }
 
-  // 3. Authoritative sourceItem
+  // 3. Authoritative sourceItem & Strict Project Isolation
   const authoritativeContentItemId =
     typeof params.source_item?.content_item_id === 'string'
       ? params.source_item.content_item_id.trim()
       : '';
 
+  const rawProjectId =
+    typeof params.source_item?.project_id === 'string'
+      ? params.source_item.project_id.trim()
+      : '';
+  const rawLegacyProjectId =
+    typeof params.source_item?.projectId === 'string'
+      ? params.source_item.projectId.trim()
+      : '';
+
+  let sourceItemProjectId = '';
   let isSourceItemValid = false;
-  if (!params.source_item || !authoritativeContentItemId) {
-    blockers.push('source_item wajib tersedia dengan content_item_id yang valid.');
+
+  if (!params.source_item) {
+    blockers.push('source_item wajib tersedia.');
   } else {
-    isSourceItemValid = true;
-    if (
-      params.production_context &&
-      params.production_context.content_item &&
-      params.production_context.content_item.content_item_id !== authoritativeContentItemId
-    ) {
+    let hasContentId = false;
+    if (!authoritativeContentItemId) {
+      blockers.push('source_item wajib memiliki content_item_id yang valid.');
+    } else {
+      hasContentId = true;
+    }
+
+    let hasProjectIdentity = false;
+    if (!rawProjectId && !rawLegacyProjectId) {
       blockers.push(
-        'Identitas source_item.content_item_id tidak cocok dengan content_item pada ProductionEngineContext.'
+        'source_item wajib memiliki setidaknya satu identitas project (project_id atau projectId) yang valid.'
       );
+    } else if (rawProjectId && rawLegacyProjectId && rawProjectId !== rawLegacyProjectId) {
+      blockers.push(
+        'Identitas project_id dan projectId pada source_item tidak cocok (harus identik jika keduanya ada).'
+      );
+    } else {
+      sourceItemProjectId = rawProjectId || rawLegacyProjectId;
+      hasProjectIdentity = true;
+    }
+
+    let matchesContextProject = true;
+    let matchesContextItem = true;
+
+    if (params.production_context) {
+      if (hasProjectIdentity && sourceItemProjectId !== params.production_context.project_id) {
+        matchesContextProject = false;
+        blockers.push(
+          'Identitas project pada source_item tidak cocok dengan production_context.project_id.'
+        );
+      }
+      if (
+        hasContentId &&
+        params.production_context.content_item &&
+        params.production_context.content_item.content_item_id !== authoritativeContentItemId
+      ) {
+        matchesContextItem = false;
+        blockers.push(
+          'Identitas source_item.content_item_id tidak cocok dengan content_item pada ProductionEngineContext.'
+        );
+      }
+    }
+
+    if (hasContentId && hasProjectIdentity && matchesContextProject && matchesContextItem) {
+      isSourceItemValid = true;
     }
   }
 
