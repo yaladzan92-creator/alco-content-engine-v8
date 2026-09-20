@@ -51,12 +51,27 @@ export interface VideoProductionInputSignatureParams {
 }
 
 /**
+ * Pure synchronous deterministic 32-bit FNV-1a hash formatted as an 8-character hex string.
+ * Used exclusively for generating compact change-detection signatures without persisting
+ * raw image bytes or Base64 payloads into state / storage.
+ */
+export function hashDeterministicString(str: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
  * Builds a deterministic pure signature from mode-specific production inputs.
  * Used exclusively to bind scene completion to external clip creation assets
  * (such as CharacterDNA for human_led or ProductAssetContext for product_demo).
  *
  * Fails closed (returns '') if required mode-specific input is missing or invalid.
- * Does NOT include timestamps or temporary binary state (Blobs, Files, object URLs).
+ * Does NOT include timestamps or temporary binary state.
+ * Raw image / Base64 data is hashed in-memory and NEVER persisted into returned signature.
  */
 export function buildVideoProductionInputSignature(
   params: VideoProductionInputSignatureParams
@@ -165,8 +180,8 @@ export function buildVideoProductionInputSignature(
       ? character_dna.preview_image
       : '';
 
-    return [
-      'input_sig_human_led',
+    const inMemorySerialization = [
+      'human_led',
       `char_id:${character_dna.character_id.trim()}`,
       `proj_id:${character_dna.project_id.trim()}`,
       `ref_img:${refImages}`,
@@ -178,6 +193,8 @@ export function buildVideoProductionInputSignature(
       `consistency:${consistencyParts}`,
       `prompts:${promptParts}`,
     ].join('##');
+
+    return `input_sig_human_led_${hashDeterministicString(inMemorySerialization)}`;
   }
 
   if (production_mode === 'product_demo') {
@@ -261,8 +278,8 @@ export function buildVideoProductionInputSignature(
       ? product_asset_context.product_type
       : '';
 
-    return [
-      'input_sig_product_demo',
+    const inMemorySerialization = [
+      'product_demo',
       `prod_name:${prodName.trim()}`,
       `prod_type:${prodType.trim()}`,
       `screenshots:${sortedScreenshots}`,
@@ -271,6 +288,8 @@ export function buildVideoProductionInputSignature(
       `logo:${logoPart}`,
       `screen_rec:${screenRecPart}`,
     ].join('##');
+
+    return `input_sig_product_demo_${hashDeterministicString(inMemorySerialization)}`;
   }
 
   if (production_mode === 'motion_explainer') {

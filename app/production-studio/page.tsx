@@ -4716,7 +4716,7 @@ ${formatDirection}${revisionDirective}`;
   useEffect(() => {
     if (
       !canonicalProjectId ||
-      !activeItem?.content_item_id ||
+      !sourceItem?.content_item_id ||
       !selectedVideoProductionMode ||
       !currentScenePlanSignature ||
       !currentVideoProductionInputSignature
@@ -4725,14 +4725,15 @@ ${formatDirection}${revisionDirective}`;
       return;
     }
 
+    const contentItemId = sourceItem.content_item_id;
     const storageKey = getVideoSceneCompletionStorageKey(
-      activeItem.content_item_id,
+      contentItemId,
       selectedVideoProductionMode
     );
     const stored = loadProjectData(canonicalProjectId, storageKey);
     const expected = {
       project_id: canonicalProjectId,
-      content_item_id: activeItem.content_item_id,
+      content_item_id: contentItemId,
       production_mode: selectedVideoProductionMode,
       scene_plan_signature: currentScenePlanSignature,
       production_input_signature: currentVideoProductionInputSignature,
@@ -4748,7 +4749,7 @@ ${formatDirection}${revisionDirective}`;
     }
   }, [
     canonicalProjectId,
-    activeItem?.content_item_id,
+    sourceItem?.content_item_id,
     selectedVideoProductionMode,
     currentScenePlanSignature,
     currentVideoProductionInputSignature,
@@ -4757,16 +4758,17 @@ ${formatDirection}${revisionDirective}`;
   const handleToggleSceneCompletion = (sceneNumber: 1 | 2 | 3, isCompleted: boolean) => {
     if (
       !canonicalProjectId ||
-      !activeItem?.content_item_id ||
+      !sourceItem?.content_item_id ||
       !selectedVideoProductionMode ||
       !currentScenePlanSignature ||
       !currentVideoProductionInputSignature
     ) {
       return;
     }
+    const contentItemId = sourceItem.content_item_id;
     const expected = {
       project_id: canonicalProjectId,
-      content_item_id: activeItem.content_item_id,
+      content_item_id: contentItemId,
       production_mode: selectedVideoProductionMode,
       scene_plan_signature: currentScenePlanSignature,
       production_input_signature: currentVideoProductionInputSignature,
@@ -4781,7 +4783,7 @@ ${formatDirection}${revisionDirective}`;
     const nextState = setVideoSceneClipCreated(currentState, sceneNumber, isCompleted);
     setVideoSceneCompletionState(nextState);
     const storageKey = getVideoSceneCompletionStorageKey(
-      activeItem.content_item_id,
+      contentItemId,
       selectedVideoProductionMode
     );
     saveProjectData(canonicalProjectId, storageKey, nextState);

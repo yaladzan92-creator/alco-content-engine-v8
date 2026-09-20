@@ -19,6 +19,8 @@ import {
 import { VideoProductionCandidate } from '../lib/production-candidate';
 import { CharacterDNA } from '../lib/content-contract';
 import { ProductAssetContext } from '../lib/video-production-input';
+import * as fs from 'fs';
+import * as path from 'path';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -911,5 +913,164 @@ assert(
   validateVideoSceneCompletionState(prodAll3Done, newExpectedProd).isValid === false,
   'C1C-D+ TEST 26: Product screenshot change makes previous product completion invalid'
 );
+
+// ============================================================================
+// PHASE 3D-C1C-D+ CORRECTIVE FIX TESTS: COMPACT HASH & RAW BASE64 REMOVAL
+// ============================================================================
+console.log('\n--- RUNNING C1C-D+ COMPACT HASH & RAW BASE64 REMOVAL TESTS ---');
+
+// TEST 27: Realistic CharacterDNA reference image produces non-empty signature without raw Base64/data URI
+console.log('Running C1C-D+ Test 27: Realistic CharacterDNA reference image does not appear raw in signature');
+const dnaWithRealBase64: CharacterDNA = {
+  ...mockCharacterDNA,
+  reference_images: ['data:image/jpeg;base64,AAAABBBBCCCC'],
+};
+const sigRealBase64 = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: dnaWithRealBase64,
+});
+assert(typeof sigRealBase64 === 'string' && sigRealBase64.length > 0, 'Signature is non-empty');
+assert(!sigRealBase64.includes('data:image'), 'Signature does not contain data:image');
+assert(!sigRealBase64.includes('base64'), 'Signature does not contain base64');
+assert(!sigRealBase64.includes('AAAABBBBCCCC'), 'Signature does not contain raw payload AAAABBBBCCCC');
+assert(sigRealBase64.startsWith('input_sig_human_led_'), 'Signature starts with input_sig_human_led_');
+
+// TEST 28: Reference image A vs Reference image B produces different signatures
+console.log('Running C1C-D+ Test 28: Reference image A vs B produces different signatures');
+const dnaRefA: CharacterDNA = {
+  ...mockCharacterDNA,
+  reference_images: ['data:image/jpeg;base64,AAAA'],
+};
+const dnaRefB: CharacterDNA = {
+  ...mockCharacterDNA,
+  reference_images: ['data:image/jpeg;base64,BBBB'],
+};
+const sigRefA = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: dnaRefA,
+});
+const sigRefB = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: dnaRefB,
+});
+assert(sigRefA !== sigRefB, 'Signature A !== Signature B');
+assert(!sigRefA.includes('AAAA') && !sigRefB.includes('BBBB'), 'No raw reference data in signatures');
+
+// TEST 29: preview_image A vs preview_image B produces different signatures without raw preview data
+console.log('Running C1C-D+ Test 29: preview_image A vs B produces different signatures without raw preview data');
+const dnaPreviewA: CharacterDNA = {
+  ...mockCharacterDNA,
+  preview_image: 'data:image/png;base64,PREVIEW_IMAGE_AAAA',
+};
+const dnaPreviewB: CharacterDNA = {
+  ...mockCharacterDNA,
+  preview_image: 'data:image/png;base64,PREVIEW_IMAGE_BBBB',
+};
+const sigPreviewA = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: dnaPreviewA,
+});
+const sigPreviewB = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: dnaPreviewB,
+});
+assert(sigPreviewA !== sigPreviewB, 'preview_image changes signature');
+assert(!sigPreviewA.includes('PREVIEW_IMAGE_AAAA'), 'No raw preview data in sigPreviewA');
+assert(!sigPreviewB.includes('PREVIEW_IMAGE_BBBB'), 'No raw preview data in sigPreviewB');
+
+// TEST 30: Same CharacterDNA values produce exact same signature
+console.log('Running C1C-D+ Test 30: Same CharacterDNA values produce exact same signature');
+const sigSame1 = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: mockCharacterDNA,
+});
+const sigSame2 = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: { ...mockCharacterDNA },
+});
+assert(sigSame1 === sigSame2, 'Same CharacterDNA values produce exact same signature');
+
+// TEST 31: Only timestamps.updated_at changes produces same signature
+console.log('Running C1C-D+ Test 31: Only timestamps.updated_at changes produces same signature');
+const dnaUpdatedOnly: CharacterDNA = {
+  ...mockCharacterDNA,
+  timestamps: {
+    created_at: mockCharacterDNA.timestamps.created_at,
+    updated_at: '2026-12-31T23:59:59.999Z',
+  },
+};
+const sigTimestampMod = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: dnaUpdatedOnly,
+});
+assert(sigSame1 === sigTimestampMod, 'timestamps.updated_at does not change signature');
+
+// TEST 32: Very long Base64 reference input produces compact signature (< 100 chars)
+console.log('Running C1C-D+ Test 32: Very long Base64 reference input produces compact signature');
+const veryLongBase64 = 'data:image/jpeg;base64,' + 'ABCD1234'.repeat(50000); // 400KB base64
+const dnaHuge: CharacterDNA = {
+  ...mockCharacterDNA,
+  reference_images: [veryLongBase64],
+};
+const sigHuge = buildVideoProductionInputSignature({
+  production_mode: 'human_led',
+  character_dna: dnaHuge,
+});
+assert(typeof sigHuge === 'string' && sigHuge.startsWith('input_sig_human_led_'), 'Huge base64 generates valid signature');
+assert(sigHuge.length < 100, `Signature must be compact (actual length: ${sigHuge.length})`);
+assert(!sigHuge.includes('ABCD'), 'Signature does not contain huge base64 content');
+
+// TEST 33: Product Demo valid context begins with input_sig_product_demo_ and stays compact (< 100 chars)
+console.log('Running C1C-D+ Test 33: Product Demo valid context begins with input_sig_product_demo_ and stays compact');
+const sigProdCompact = buildVideoProductionInputSignature({
+  production_mode: 'product_demo',
+  product_asset_context: mockProductAssetContext,
+});
+assert(sigProdCompact.startsWith('input_sig_product_demo_'), 'Product demo signature begins with input_sig_product_demo_');
+assert(sigProdCompact.length < 100, `Product demo signature must be compact (actual length: ${sigProdCompact.length})`);
+
+// TEST 34: Changing ProductAssetContext screenshot id changes signature
+console.log('Running C1C-D+ Test 34: Changing ProductAssetContext screenshot id changes signature');
+const prodModScreen = {
+  ...mockProductAssetContext,
+  screenshots: [
+    { id: 'screen_new_id_999', name: 'Main Analytics Dashboard', kind: 'screenshot' as const },
+    mockProductAssetContext.screenshots[1],
+  ],
+};
+const sigProdModScreen = buildVideoProductionInputSignature({
+  production_mode: 'product_demo',
+  product_asset_context: prodModScreen,
+});
+assert(sigProdCompact !== sigProdModScreen, 'Changing screenshot id changes signature');
+
+// TEST 35: motion_explainer remains exactly input_sig_motion_explainer_v1
+console.log('Running C1C-D+ Test 35: motion_explainer remains exactly input_sig_motion_explainer_v1');
+const sigMotionExplainer = buildVideoProductionInputSignature({
+  production_mode: 'motion_explainer',
+});
+assert(sigMotionExplainer === 'input_sig_motion_explainer_v1', 'motion_explainer remains exactly input_sig_motion_explainer_v1');
+
+// ============================================================================
+// STATIC SOURCE GUARDS
+// ============================================================================
+console.log('\n--- RUNNING C1C-D+ STATIC SOURCE GUARDS ---');
+
+// GUARD 1: lib/video-scene-completion.ts returned signature must not directly interpolate reference_images or preview_image
+console.log('Running Static Guard: No raw image interpolation in returned signatures');
+const completionLibSrc = fs.readFileSync(path.join(process.cwd(), 'lib/video-scene-completion.ts'), 'utf-8');
+assert(!completionLibSrc.match(/return\s+`[^`]*\${refImages}/), 'HUMAN returned signature must NOT directly interpolate reference_images');
+assert(!completionLibSrc.match(/return\s+`[^`]*\${preview}/), 'HUMAN returned signature must NOT directly interpolate preview_image');
+
+// GUARD 2: page.tsx completion lifecycle uses sourceItem.content_item_id only (no activeItem fallback)
+console.log('Running Static Guard: Completion lifecycle uses sourceItem.content_item_id only');
+const pageSrc = fs.readFileSync(path.join(process.cwd(), 'app/production-studio/page.tsx'), 'utf-8');
+const completionBlockMatch = pageSrc.match(/\/\/ Phase 3D-C1C-D\+: Real Scene Completion State[\s\S]*?\/\/ Render content of active tab/);
+assert(!!completionBlockMatch, 'C1C-D+ completion block must be present in page.tsx');
+const completionBlock = completionBlockMatch ? completionBlockMatch[0] : '';
+assert(completionBlock.includes('sourceItem?.content_item_id'), 'C1C-D+ completion block must use sourceItem?.content_item_id');
+assert(!completionBlock.includes('activeItem?.content_item_id'), 'C1C-D+ completion block must NOT use activeItem?.content_item_id');
+assert(!completionBlock.includes('activeItem.content_item_id'), 'C1C-D+ completion block must NOT use activeItem.content_item_id');
+assert(pageSrc.includes('activeItem?.jenis') || pageSrc.includes('activeItem?.headline'), 'activeItem UI fallback must be preserved globally');
 
 console.log('--- ALL TESTS IN PHASE 3D-C1C-D & PHASE 3D-C1C-D+ PASSED PERFECTLY ---');

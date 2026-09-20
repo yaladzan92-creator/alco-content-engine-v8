@@ -6884,6 +6884,38 @@ assert(
   'C1C-D+ STATIC GUARD 6: No any added to solve typing in lib/video-scene-completion.ts'
 );
 
+assert(
+  !videoSceneCompletionSrc.match(/return\s+`[^`]*\${refImages}/) &&
+  !videoSceneCompletionSrc.match(/return\s+`[^`]*\${preview}/),
+  'C1C-D+ STATIC GUARD 7: HUMAN returned signature must NOT directly interpolate reference_images or preview_image'
+);
+
+const completionBlockMatch = pageSrc.match(/\/\/ Phase 3D-C1C-D\+: Real Scene Completion State[\s\S]*?\/\/ Render content of active tab/);
+assert(
+  !!completionBlockMatch,
+  'C1C-D+ STATIC GUARD 8a: C1C-D+ completion block must be present in page.tsx'
+);
+const completionBlock = completionBlockMatch ? completionBlockMatch[0] : '';
+assert(
+  completionBlock.includes('sourceItem?.content_item_id'),
+  'C1C-D+ STATIC GUARD 8b: C1C-D+ completion block must use sourceItem?.content_item_id'
+);
+assert(
+  !completionBlock.includes('activeItem?.content_item_id') &&
+  !completionBlock.includes('activeItem.content_item_id'),
+  'C1C-D+ STATIC GUARD 8c: C1C-D+ completion block must NOT use activeItem?.content_item_id or activeItem.content_item_id'
+);
+assert(
+  pageSrc.includes('activeItem?.jenis') || pageSrc.includes('activeItem?.headline'),
+  'C1C-D+ STATIC GUARD 8d: activeItem UI fallback must be preserved globally'
+);
+
+assert(
+  videoSceneCompletionSrc.includes('hashDeterministicString') &&
+  videoSceneCompletionSrc.includes('input_sig_human_led_${hashDeterministicString('),
+  'C1C-D+ STATIC GUARD 9: buildVideoProductionInputSignature must use deterministic compact hash for human_led'
+);
+
 // -------------------------------------------------------------
 // RESULTS SUMMARY
 // -------------------------------------------------------------
