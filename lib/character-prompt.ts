@@ -11,9 +11,13 @@ export function buildCharacterConsistencyPrompt(dna: CharacterDNA | null | undef
   }
 
   const name = dna.identity.display_name.trim();
-  const gender = dna.identity.gender_presentation?.trim() || 'woman';
-  const age = dna.identity.estimated_age_range?.trim() || 'around 28 years old';
-  const region = dna.identity.ethnicity_or_region_hint?.trim() || 'Indonesian';
+  if (!name) {
+    return '';
+  }
+
+  const gender = dna.identity.gender_presentation?.trim();
+  const age = dna.identity.estimated_age_range?.trim();
+  const region = dna.identity.ethnicity_or_region_hint?.trim();
   const skin = dna.identity.skin_tone?.trim();
   const hair = dna.identity.hair_description?.trim();
   const body = dna.identity.body_type?.trim();
@@ -38,9 +42,17 @@ export function buildCharacterConsistencyPrompt(dna: CharacterDNA | null | undef
   sections.push('[CHARACTER CONSISTENCY]');
   sections.push(`Use saved character "${name}".`);
 
-  // Identity Summary Line
-  const identityLine = `${region} ${gender.toLowerCase()}, visually ${age.startsWith('around') || age.startsWith('usia') ? age : `around ${age}`} with consistent facial identity and physical characteristics.`;
-  sections.push(identityLine);
+  // Identity Summary Line (constructed only from declared traits)
+  const identityParts: string[] = [];
+  if (region) identityParts.push(region);
+  if (gender) identityParts.push(gender.toLowerCase());
+  if (age) {
+    const formattedAge = age.startsWith('around') || age.startsWith('usia') ? age : `around ${age}`;
+    identityParts.push(`visually ${formattedAge}`);
+  }
+  if (identityParts.length > 0) {
+    sections.push(`${identityParts.join(' ')} with consistent facial identity and physical characteristics.`);
+  }
 
   // Style & Wardrobe Details
   const styleLines: string[] = [];

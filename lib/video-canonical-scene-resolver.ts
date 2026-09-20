@@ -6,6 +6,7 @@ import {
 } from './production-candidate';
 import { ProductAssetContext } from './video-production-input';
 import { CharacterDNA } from './content-contract';
+import { translateSingleVideoScenePrompt } from './prompt-translation';
 
 export interface CanonicalSceneResolveParams {
   candidates: any[] | null | undefined;
@@ -236,134 +237,6 @@ export interface SceneProductionInstructionResult {
 export function buildCanonicalSceneProductionInstructions(
   params: BuildSceneInstructionsParams
 ): SceneProductionInstructionResult {
-  const { scene, productionMode, characterDNA, productAssetContext } = params;
-
-  if (!scene || typeof scene !== 'object') {
-    return {
-      isValid: false,
-      error: 'Scene canonical wajib tersedia (FAIL CLOSED).',
-    };
-  }
-
-  const voiceover = scene.voiceover || '—';
-  const onScreenText = scene.on_screen_text || '—';
-
-  let imagePrompt = '';
-  let motionPrompt = '';
-
-  if (productionMode === 'human_led') {
-    // Human Led: use authoritative CharacterDNA prompt_assets
-    const characterSubject =
-      characterDNA?.prompt_assets?.dna_summary_prompt ||
-      characterDNA?.prompt_assets?.locked_visual_prompt;
-
-    if (!characterSubject || typeof characterSubject !== 'string' || !characterSubject.trim()) {
-      return {
-        isValid: false,
-        error: 'CharacterDNA dengan prompt_assets wajib tersedia untuk mode human_led (FAIL CLOSED).',
-      };
-    }
-
-    imagePrompt = `Start Frame Image Prompt (Format 9:16 Vertical):
-Subject: ${characterSubject.trim()}
-Visual Direction: ${scene.visual_direction || '—'}
-Action: ${scene.action || '—'}
-Camera: ${scene.camera || '—'}
-On-Screen Text: ${scene.on_screen_text || '—'}
-Negative Constraints: no blurry text, no distorted anatomy, no visual artifacts`;
-
-    motionPrompt = `Video Motion Prompt (Google FX Studio / Veo):
-Camera: ${scene.camera || '—'}
-Action: ${scene.action || '—'}
-Voiceover Cue: "${voiceover}"
-On-Screen Text Cue: "${onScreenText}"
-Duration: ${scene.duration_seconds}s
-Format: 9:16 vertical video
-Negative Constraints: no abrupt cuts, no jittery camera, no distorted motion artifacts`;
-  } else if (productionMode === 'product_demo') {
-    // Product Demo: use ProductAssetContext
-    if (!productAssetContext || typeof productAssetContext !== 'object') {
-      return {
-        isValid: false,
-        error: 'ProductAssetContext wajib tersedia untuk mode product_demo (FAIL CLOSED).',
-      };
-    }
-
-    const prodName = productAssetContext.product_name;
-    if (!prodName || typeof prodName !== 'string' || !prodName.trim()) {
-      return {
-        isValid: false,
-        error: 'product_name wajib tersedia pada ProductAssetContext untuk mode product_demo (FAIL CLOSED).',
-      };
-    }
-
-    const validScreenshots = Array.isArray(productAssetContext.screenshots)
-      ? productAssetContext.screenshots.filter(
-          (s) =>
-            s &&
-            s.kind === 'screenshot' &&
-            typeof s.id === 'string' &&
-            s.id.trim().length > 0 &&
-            typeof s.name === 'string' &&
-            s.name.trim().length > 0
-        )
-      : [];
-
-    if (validScreenshots.length === 0) {
-      return {
-        isValid: false,
-        error: 'Minimal 1 screenshot valid wajib tersedia pada ProductAssetContext untuk mode product_demo (FAIL CLOSED).',
-      };
-    }
-
-    const screenshotListText = validScreenshots
-      .map((s, idx) => `[Screenshot ${idx + 1}: ${s.name}]`)
-      .join(', ');
-
-    imagePrompt = `Start Frame Image Prompt (Format 9:16 Vertical):
-Product: ${prodName.trim()}
-Screenshots: ${screenshotListText}
-Visual Direction: ${scene.visual_direction || '—'}
-Action: ${scene.action || '—'}
-Camera: ${scene.camera || '—'}
-On-Screen Text: ${scene.on_screen_text || '—'}
-Negative Constraints: no blurry text, no distorted UI, no broken layout geometry`;
-
-    motionPrompt = `Video Motion Prompt (Google FX Studio / Veo):
-Camera: ${scene.camera || '—'}
-Action: ${scene.action || '—'}
-Voiceover Cue: "${voiceover}"
-On-Screen Text Cue: "${onScreenText}"
-Duration: ${scene.duration_seconds}s
-Format: 9:16 vertical video
-Negative Constraints: no glitchy transitions, no blurry screen elements, no erratic motion`;
-  } else {
-    // Motion Explainer: purely derived from canonical scene fields
-    imagePrompt = `Start Frame Image Prompt (Format 9:16 Vertical):
-Visual Direction: ${scene.visual_direction || '—'}
-Camera: ${scene.camera || '—'}
-On-Screen Text: ${scene.on_screen_text || '—'}
-Negative Constraints: no photorealistic person, no messy sketch, no blurry text`;
-
-    motionPrompt = `Video Motion Prompt (Google FX Studio / Veo):
-Camera: ${scene.camera || '—'}
-Action: ${scene.action || '—'}
-Visual Direction: ${scene.visual_direction || '—'}
-Voiceover Cue: "${voiceover}"
-On-Screen Text Cue: "${onScreenText}"
-Duration: ${scene.duration_seconds}s
-Format: 9:16 vertical video
-Negative Constraints: no abrupt cuts, no jittery animation, no unreadable typography`;
-  }
-
-  return {
-    isValid: true,
-    instructions: {
-      imagePrompt,
-      motionPrompt,
-      voiceover,
-      onScreenText,
-    },
-  };
+  return translateSingleVideoScenePrompt(params);
 }
 
