@@ -15,11 +15,19 @@ import {
   FileText,
   Layers,
   ArrowRight,
+  ShieldCheck,
+  AlertTriangle,
+  Info,
+  Package,
+  UserCheck,
 } from 'lucide-react';
 import { PromptNextStepLinks } from './PromptNextStepLinks';
 import CharacterSelector from './CharacterSelector';
+import ProductAssetInputPanel from './ProductAssetInputPanel';
 import { countWords } from '@/lib/funnel-rules';
 import { getVideoProductionModeLabel } from '@/lib/video-intent-resolver';
+import { VideoProductionReadiness } from '@/lib/video-production-readiness';
+import { ProductAssetContext } from '@/lib/video-production-input';
 
 export default function VideoPanel(props: any) {
   const {
@@ -48,6 +56,9 @@ export default function VideoPanel(props: any) {
     selectedCharacterId,
     handleSelectCharacter,
     handleCreateCharacterClick,
+    productAssetContext,
+    setProductAssetContext,
+    videoProductionReadiness,
   } = props;
 
   // Single active scene state for focused progressive workspace
@@ -189,22 +200,203 @@ export default function VideoPanel(props: any) {
           })}
         </div>
 
-        {/* Character Selector & Workflow Info */}
+        {/* Mode-specific context badge & Workflow Info */}
         <div className="flex items-center gap-2 flex-wrap">
-          <CharacterSelector
-            savedCharacters={savedCharacters || []}
-            selectedCharacterId={selectedCharacterId || null}
-            onSelectCharacter={handleSelectCharacter}
-            onCreateCharacter={handleCreateCharacterClick}
-          />
+          {selectedVideoProductionMode === 'human_led' ? (
+            <CharacterSelector
+              savedCharacters={savedCharacters || []}
+              selectedCharacterId={selectedCharacterId || null}
+              onSelectCharacter={handleSelectCharacter}
+              onCreateCharacter={handleCreateCharacterClick}
+            />
+          ) : selectedVideoProductionMode === 'product_demo' ? (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f6f3ee] rounded-xl border border-[#e7e0d4] text-xs font-semibold text-stone-700">
+              <Package size={13} className="text-primary" />
+              <span>Aset Produk: {productAssetContext?.product_name ? productAssetContext.product_name : 'Belum Diisi'}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f6f3ee] rounded-xl border border-[#e7e0d4] text-xs font-semibold text-stone-700">
+              <Layers size={13} className="text-primary" />
+              <span>Motion Graphics Alur Mandiri</span>
+            </div>
+          )}
           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f6f3ee] rounded-xl border border-[#e7e0d4] text-xs font-bold text-primary">
             <Sparkles size={13} className="text-primary" />
-            <span>Google Flow (3 Scene)</span>
+            <span>
+              {selectedVideoProductionMode === 'human_led'
+                ? 'Google Flow (3 Scene)'
+                : selectedVideoProductionMode === 'product_demo'
+                ? 'Product Demo Studio'
+                : 'Motion Explainer Studio'}
+            </span>
           </div>
         </div>
       </div>
 
-      {/* 2. WORKSPACE: GOOGLE FLOW 3-SCENE PRODUCTION */}
+      {/* 2. CANONICAL VIDEO READINESS STATUS CARD (Phase 3D-C1C-B) */}
+      {videoProductionReadiness && (
+        <div
+          className={`border rounded-2xl p-4 transition-all shadow-xs space-y-2.5 ${
+            videoProductionReadiness.is_ready
+              ? 'bg-emerald-50/40 border-emerald-200'
+              : 'bg-amber-50/40 border-amber-200'
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-7 h-7 rounded-xl flex items-center justify-center ${
+                  videoProductionReadiness.is_ready
+                    ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                    : 'bg-amber-100 text-amber-700 border border-amber-300'
+                }`}
+              >
+                {videoProductionReadiness.is_ready ? (
+                  <ShieldCheck size={16} />
+                ) : (
+                  <AlertTriangle size={16} />
+                )}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-stone-900">
+                    Status Kesiapan Produksi ({getVideoProductionModeLabel(videoProductionReadiness.mode)})
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                      videoProductionReadiness.is_ready
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}
+                  >
+                    {videoProductionReadiness.is_ready ? 'Siap Produksi' : 'Menunggu Input Wajib'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-stone-600">
+                  {videoProductionReadiness.is_ready
+                    ? 'Seluruh input wajib untuk mode video ini telah terpenuhi.'
+                    : `Terdapat ${videoProductionReadiness.missing_required_inputs.length} input wajib yang belum lengkap.`}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Missing Required Inputs & Warnings */}
+          {!videoProductionReadiness.is_ready && (
+            <div className="space-y-1.5 pt-2 border-t border-amber-200/60">
+              {videoProductionReadiness.missing_required_inputs.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+                  <span className="font-bold text-amber-900">Input wajib belum terisi:</span>
+                  {videoProductionReadiness.missing_required_inputs.map((inp) => (
+                    <span
+                      key={inp}
+                      className="px-2 py-0.5 rounded bg-amber-100/80 border border-amber-300 text-amber-900 font-semibold uppercase text-[10px]"
+                    >
+                      {inp.replace(/_/g, ' ')}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {videoProductionReadiness.warnings.length > 0 && (
+                <div className="space-y-1">
+                  {videoProductionReadiness.warnings.map((warn, i) => (
+                    <p key={i} className="text-xs text-amber-800 flex items-start gap-1.5">
+                      <span className="text-amber-600 font-bold shrink-0">&bull;</span>
+                      <span>{warn}</span>
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 3. MODE-SPECIFIC INPUT UX (Phase 3D-C1C-B) */}
+      {selectedVideoProductionMode === 'human_led' && (
+        <div className="bg-[#fffdf8] border border-[#e7e0d4] rounded-2xl p-4 sm:p-5 space-y-3 shadow-xs">
+          <div className="flex items-center justify-between pb-2 border-b border-[#e7e0d4]">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20">
+                <UserCheck size={16} />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold text-stone-900">Konfigurasi Talent Karakter (Human-Led)</h3>
+                <p className="text-[11px] text-stone-500">
+                  Mode ini mewajibkan pemilihan Karakter (CharacterDNA) aktif untuk menjaga konsistensi talent visual.
+                </p>
+              </div>
+            </div>
+            {characterDNA ? (
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
+                Karakter Aktif: {characterDNA.identity?.display_name || characterDNA.character_id}
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-800 border border-rose-200">
+                Karakter Wajib Dipilih
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <CharacterSelector
+              savedCharacters={savedCharacters || []}
+              selectedCharacterId={selectedCharacterId || null}
+              onSelectCharacter={handleSelectCharacter}
+              onCreateCharacter={handleCreateCharacterClick}
+            />
+            {handleCreateCharacterClick && (
+              <button
+                type="button"
+                onClick={handleCreateCharacterClick}
+                className="px-3 py-1.5 rounded-xl border border-[#e7e0d4] bg-[#f6f3ee] hover:bg-stone-200 text-stone-800 text-xs font-semibold transition cursor-pointer"
+              >
+                + Kelola DNA Karakter
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {selectedVideoProductionMode === 'product_demo' && (
+        <ProductAssetInputPanel
+          value={productAssetContext || null}
+          onChange={(newContext) => {
+            if (setProductAssetContext) {
+              setProductAssetContext(newContext);
+            }
+          }}
+        />
+      )}
+
+      {selectedVideoProductionMode === 'motion_explainer' && (
+        <div className="bg-[#fffdf8] border border-[#e7e0d4] rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-xs">
+          <div className="flex items-center gap-2 pb-2 border-b border-[#e7e0d4]">
+            <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20">
+              <Layers size={16} />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-stone-900">Alur Produksi Motion Explainer</h3>
+              <p className="text-[11px] text-stone-500">
+                Animasi grafis, diagram alur konsep, dan visual data points diproduksi tanpa perlu upload aset fisik eksternal.
+              </p>
+            </div>
+          </div>
+          <div className="p-3 bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl flex items-start gap-2.5 text-xs text-stone-700">
+            <Info size={16} className="text-primary shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold text-stone-900">
+                Mode Motion Explainer siap diproduksi secara langsung!
+              </p>
+              <p className="leading-relaxed">
+                Mode ini mengandalkan narasi konsep, data callouts, dan motion visual cue dari naskah strategi yang telah disusun. Tidak diperlukan file tangkapan layar atau pemilihan karakter talent.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. WORKSPACE: GOOGLE FLOW 3-SCENE PRODUCTION (Guarded for Human-Led mode only) */}
+      {selectedVideoProductionMode === 'human_led' ? (
       <div className="space-y-4">
           
           {/* Scene Navigation Bar */}
@@ -495,7 +687,6 @@ export default function VideoPanel(props: any) {
               </div>
             )}
           </div>
-        </div>
 
           {/* CAPTION SECTION (Siap Posting) */}
           {(activeVideo.captionForPost || activeItem?.caption) && (
@@ -641,6 +832,23 @@ export default function VideoPanel(props: any) {
             </details>
 
           </div>
+
+      </div>
+      ) : (
+        <div className="bg-[#fffdf8] border border-[#e7e0d4] rounded-2xl p-6 text-center space-y-2 shadow-xs">
+          <div className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto border border-primary/20">
+            <Video size={20} />
+          </div>
+          <h4 className="text-xs font-bold text-stone-900">
+            Workspace Produksi {getVideoProductionModeLabel(selectedVideoProductionMode)}
+          </h4>
+          <p className="text-xs text-stone-600 max-w-lg mx-auto leading-relaxed">
+            {selectedVideoProductionMode === 'product_demo'
+              ? 'Input aset produk telah dicatat. Alur panduan adegan (Scene Guided UX) untuk mode Product Demo akan dibuka pada tahap selanjutnya (Phase C1C-C).'
+              : 'Alur motion graphics mandiri telah terkonfigurasi. Panduan adegan motion explainer akan dibuka pada tahap selanjutnya (Phase C1C-C).'}
+          </p>
+        </div>
+      )}
 
     </div>
   );

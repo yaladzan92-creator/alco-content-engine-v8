@@ -3768,6 +3768,16 @@ export default function ProductionStudioPage() {
         } else {
           setRevisionNotes('');
         }
+
+        // Scope productAssetContext strictly to current item
+        const storedProductAsset = loadProjectData(resolvedCanonicalId, `studio_product_asset_${itemKey}`);
+        if (storedProductAsset && typeof storedProductAsset === 'object') {
+          setProductAssetContext(storedProductAsset as ProductAssetContext);
+        } else {
+          setProductAssetContext(null);
+        }
+      } else {
+        setProductAssetContext(null);
       }
     } catch (e) {
       console.error('Failed to parse storage data in Production Studio', e);
@@ -3817,6 +3827,14 @@ export default function ProductionStudioPage() {
     if (sourceItem && canonicalProjectId) {
       const itemKey = getItemKey(sourceItem);
       saveProjectData(canonicalProjectId, `studio_revision_${itemKey}`, val);
+    }
+  };
+
+  const saveProductAssetContext = (val: ProductAssetContext | null) => {
+    setProductAssetContext(val);
+    if (sourceItem && canonicalProjectId) {
+      const itemKey = getItemKey(sourceItem);
+      saveProjectData(canonicalProjectId, `studio_product_asset_${itemKey}`, val);
     }
   };
 
@@ -4649,7 +4667,7 @@ ${formatDirection}${revisionDirective}`;
       handleDownloadImage, imageGenerateError,
       characterDNA, getGoogleFlowVideoPack, setActiveTab,
       savedCharacters, selectedCharacterId, handleSelectCharacter, handleCreateCharacterClick,
-      productAssetContext, setProductAssetContext, videoProductionReadiness,
+      productAssetContext, setProductAssetContext: saveProductAssetContext, videoProductionReadiness,
     };
 
     if (activeTab === 'image') return <ImagePanel {...commonProps} />;
