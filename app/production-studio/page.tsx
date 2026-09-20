@@ -3331,8 +3331,23 @@ export default function ProductionStudioPage() {
     }
   }, [canonicalProjectId, sourceItem, recommendedVideoProductionMode, userSelectedVideoModeByItem]);
 
-  // Product Asset Context & Video Production Readiness (Phase 3D-C1C-A)
+  // Product Asset Context & Video Production Readiness (Phase 3D-C1C-A & 3D-C1C-B)
   const [productAssetContext, setProductAssetContext] = useState<ProductAssetContext | null>(null);
+
+  // Reactive loading for ProductAssetContext strictly scoped to (canonicalProjectId, sourceItem)
+  useEffect(() => {
+    if (!canonicalProjectId || !sourceItem) {
+      setProductAssetContext(null);
+      return;
+    }
+    const itemKey = getItemKey(sourceItem);
+    const storedProductAsset = loadProjectData(canonicalProjectId, `studio_product_asset_${itemKey}`);
+    if (storedProductAsset && typeof storedProductAsset === 'object') {
+      setProductAssetContext(storedProductAsset as ProductAssetContext);
+    } else {
+      setProductAssetContext(null);
+    }
+  }, [canonicalProjectId, sourceItem]);
 
   const videoProductionReadiness = useMemo<VideoProductionReadiness | null>(() => {
     if (!productionEngineContext) return null;

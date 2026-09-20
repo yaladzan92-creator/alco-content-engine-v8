@@ -125,6 +125,10 @@ export default function VideoPanel(props: any) {
   const isPromptCopied = copiedStates[`gflow_prompt_${activeScene.sceneNumber}_${activeStyleKey}`];
   const isDialogueCopied = copiedStates[`gflow_dialogue_${activeScene.sceneNumber}_${activeStyleKey}`];
 
+  const canOpenHumanLedWorkspace =
+    selectedVideoProductionMode === 'human_led' &&
+    videoProductionReadiness?.is_ready === true;
+
   return (
     <div className="space-y-4 font-sans">
       
@@ -181,7 +185,7 @@ export default function VideoPanel(props: any) {
               <button
                 key={mode || idx}
                 onClick={() => handleSelectVideoProductionMode?.(mode)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
                   isSelected
                     ? 'bg-primary text-white shadow-xs'
                     : 'bg-[#f6f3ee] text-stone-700 hover:text-stone-900 hover:bg-[#e7e0d4]/60 border border-[#e7e0d4]'
@@ -203,12 +207,12 @@ export default function VideoPanel(props: any) {
         {/* Mode-specific context badge & Workflow Info */}
         <div className="flex items-center gap-2 flex-wrap">
           {selectedVideoProductionMode === 'human_led' ? (
-            <CharacterSelector
-              savedCharacters={savedCharacters || []}
-              selectedCharacterId={selectedCharacterId || null}
-              onSelectCharacter={handleSelectCharacter}
-              onCreateCharacter={handleCreateCharacterClick}
-            />
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f6f3ee] rounded-xl border border-[#e7e0d4] text-xs font-semibold text-stone-700">
+              <UserCheck size={13} className="text-primary" />
+              <span>
+                Karakter: {characterDNA?.identity?.display_name || characterDNA?.character_id || 'Belum Dipilih'}
+              </span>
+            </div>
           ) : selectedVideoProductionMode === 'product_demo' ? (
             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f6f3ee] rounded-xl border border-[#e7e0d4] text-xs font-semibold text-stone-700">
               <Package size={13} className="text-primary" />
@@ -360,6 +364,7 @@ export default function VideoPanel(props: any) {
       {selectedVideoProductionMode === 'product_demo' && (
         <ProductAssetInputPanel
           value={productAssetContext || null}
+          videoProductionReadiness={videoProductionReadiness}
           onChange={(newContext) => {
             if (setProductAssetContext) {
               setProductAssetContext(newContext);
@@ -395,9 +400,10 @@ export default function VideoPanel(props: any) {
         </div>
       )}
 
-      {/* 4. WORKSPACE: GOOGLE FLOW 3-SCENE PRODUCTION (Guarded for Human-Led mode only) */}
+      {/* 4. WORKSPACE: GOOGLE FLOW 3-SCENE PRODUCTION (Guarded for Human-Led mode only with readiness === true) */}
       {selectedVideoProductionMode === 'human_led' ? (
-      <div className="space-y-4">
+        canOpenHumanLedWorkspace ? (
+          <div className="space-y-4">
           
           {/* Scene Navigation Bar */}
           <div className="bg-[#f6f3ee] border border-[#e7e0d4] p-2 rounded-2xl flex flex-wrap items-center justify-between gap-2 shadow-xs">
@@ -832,8 +838,20 @@ export default function VideoPanel(props: any) {
             </details>
 
           </div>
-
-      </div>
+          </div>
+        ) : (
+          <div className="bg-[#fffdf8] border border-amber-200 rounded-2xl p-6 text-center space-y-2 shadow-xs">
+            <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto border border-amber-300">
+              <AlertTriangle size={20} />
+            </div>
+            <h4 className="text-xs font-bold text-stone-900">
+              Workspace Produksi Human-Led Belum Siap
+            </h4>
+            <p className="text-xs text-stone-600 max-w-lg mx-auto leading-relaxed">
+              Lengkapi CharacterDNA terlebih dahulu sebelum membuka workspace produksi Human Led.
+            </p>
+          </div>
+        )
       ) : (
         <div className="bg-[#fffdf8] border border-[#e7e0d4] rounded-2xl p-6 text-center space-y-2 shadow-xs">
           <div className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto border border-primary/20">

@@ -1,18 +1,23 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ProductAssetContext, ProductAssetReference } from '@/lib/video-production-input';
-import { Package, Image as ImageIcon, Plus, Trash2, Layers, CheckCircle2, AlertCircle } from 'lucide-react';
+import { VideoProductionReadiness } from '@/lib/video-production-readiness';
+import { Package, Image as ImageIcon, Plus, Trash2, Layers, CheckCircle2, AlertCircle, Upload } from 'lucide-react';
 
 export interface ProductAssetInputPanelProps {
   value: ProductAssetContext | null;
   onChange: (value: ProductAssetContext) => void;
+  videoProductionReadiness?: VideoProductionReadiness | null;
   className?: string;
 }
+
+const SUPPORTED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 export default function ProductAssetInputPanel({
   value,
   onChange,
+  videoProductionReadiness,
   className = '',
 }: ProductAssetInputPanelProps) {
   const currentContext: ProductAssetContext = value || {
@@ -25,7 +30,8 @@ export default function ProductAssetInputPanel({
     screen_recording_reference: null,
   };
 
-  const [screenshotNameInput, setScreenshotNameInput] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [featureInput, setFeatureInput] = useState('');
   const [stepInput, setStepInput] = useState('');
 
@@ -36,18 +42,40 @@ export default function ProductAssetInputPanel({
     });
   };
 
-  const handleAddScreenshot = () => {
-    const trimmed = screenshotNameInput.trim();
-    if (!trimmed) return;
-    const newRef: ProductAssetReference = {
-      id: `shot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      name: trimmed,
-      kind: 'screenshot',
-    };
-    updateContext({
-      screenshots: [...currentContext.screenshots, newRef],
-    });
-    setScreenshotNameInput('');
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const validFiles: File[] = [];
+    let hasUnsupported = false;
+
+    for (const f of files) {
+      if (SUPPORTED_MIME_TYPES.includes(f.type)) {
+        validFiles.push(f);
+      } else {
+        hasUnsupported = true;
+      }
+    }
+
+    if (hasUnsupported) {
+      setFileError('Format screenshot harus PNG, JPG, atau WebP.');
+    } else {
+      setFileError(null);
+    }
+
+    if (validFiles.length > 0) {
+      const newRefs: ProductAssetReference[] = validFiles.map((file, idx) => ({
+        id: `shot_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+        name: file.name,
+        kind: 'screenshot',
+      }));
+      updateContext({
+        screenshots: [...currentContext.screenshots, ...newRefs],
+      });
+    }
+
+    // Reset input value so identical files can be selected again if needed
+    e.target.value = '';
   };
 
   const handleRemoveScreenshot = (id: string) => {
@@ -92,6 +120,11 @@ export default function ProductAssetInputPanel({
   );
   const hasValidScreenshot = validScreenshots.length > 0;
 
+  // Canonical readiness is the single source of truth for the final readiness status badge
+  const isReady = videoProductionReadiness
+    ? videoProductionReadiness.is_ready
+    : hasValidName && hasValidScreenshot;
+
   return (
     <div className={`bg-[#fffdf8] border border-[#e7e0d4] rounded-2xl p-4 sm:p-5 space-y-5 shadow-xs ${className}`}>
       {/* Header */}
@@ -110,12 +143,12 @@ export default function ProductAssetInputPanel({
         <div className="flex items-center gap-2">
           <span
             className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
-              hasValidName && hasValidScreenshot
+              isReady
                 ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                 : 'bg-amber-100 text-amber-800 border border-amber-200'
             }`}
           >
-            {hasValidName && hasValidScreenshot ? (
+            {isReady ? (
               <>
                 <CheckCircle2 size={11} />
                 <span>Input Lengkap</span>
@@ -181,29 +214,36 @@ export default function ProductAssetInputPanel({
           </span>
         </div>
 
-        {/* Add Screenshot Form */}
-        <div className="flex gap-2">
+        {/* Real File Picker Trigger */}
+        <div className="space-y-2">
           <input
-            type="text"
-            value={screenshotNameInput}
-            onChange={(e) => setScreenshotNameInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                handleAddScreenshot();
-              }
-            }}
-            placeholder="Keterangan screenshot (contoh: 'Dashboard Analitik Utama', 'Tampilan Kalender Funnel')..."
-            className="flex-1 px-3.5 py-2 bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl text-xs text-stone-900 placeholder:text-stone-400 focus:outline-none focus:border-primary"
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            className="hidden"
           />
-          <button
-            type="button"
-            onClick={handleAddScreenshot}
-            className="px-3.5 py-2 bg-primary hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition shadow-2xs flex items-center gap-1.5 cursor-pointer shrink-0"
-          >
-            <Plus size={13} />
-            <span>Tambah Screenshot</span>
-          </button>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3.5 py-2 bg-primary hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition shadow-2xs flex items-center gap-1.5 cursor-pointer shrink-0"
+            >
+              <Upload size={13} />
+              <span>Pilih Screenshot (PNG/JPG/WebP)</span>
+            </button>
+            <span className="text-[11px] text-stone-500">
+              Format didukung: PNG, JPG, JPEG, WebP. Pilih satu atau beberapa file.
+            </span>
+          </div>
+
+          {fileError && (
+            <p className="text-xs text-rose-600 font-medium flex items-center gap-1">
+              <AlertCircle size={12} />
+              <span>{fileError}</span>
+            </p>
+          )}
         </div>
 
         {/* Screenshot List */}
@@ -237,7 +277,7 @@ export default function ProductAssetInputPanel({
           </div>
         ) : (
           <div className="p-3 bg-[#f6f3ee] border border-dashed border-[#e7e0d4] rounded-xl text-center text-xs text-stone-500">
-            Belum ada screenshot produk. Tambahkan minimal satu keterangan screenshot antarmuka produk Anda di atas.
+            Belum ada screenshot produk. Klik tombol &ldquo;Pilih Screenshot&rdquo; di atas untuk memilih file tangkapan layar produk Anda.
           </div>
         )}
       </div>
@@ -351,3 +391,4 @@ export default function ProductAssetInputPanel({
     </div>
   );
 }
+
