@@ -21,6 +21,203 @@ export interface ProductionEngineContext {
   character_dna?: CharacterDNA | null;
 }
 
+export interface ProductionEngineContextValidationResult {
+  isValid: boolean;
+  error?: string;
+}
+
+/**
+ * Validates a ProductionEngineContext against all canonical authority and project isolation rules.
+ * 
+ * STRICT AUTHORITY RULES:
+ * 1. ROOT PROJECT ID: Must be a non-empty string.
+ * 2. SHARED CONTENT CONTEXT: Must exist, be an object, and shared_context.project_id === context.project_id.
+ * 3. FUNNEL STRATEGY: Must exist, be an object, funnel_strategy.project_id === context.project_id,
+ *    and funnel_strategy.provenance.source_project_id === context.project_id.
+ *    Reuses validateFunnelStrategyProjectIsolation().
+ * 4. CONTENT ITEM: Must exist, content_item.content_item_id non-empty string.
+ *    Project identity: if project_id exists -> === context.project_id;
+ *    if projectId exists -> === context.project_id;
+ *    At least one must exist; if both exist, both must match.
+ * 5. CANONICAL FUNNEL STAGE: Exact 'TOFU' | 'MOFU' | 'BOFU'.
+ *    Must match parseStrictFunnelStage(content_item.jenis) exactly.
+ * 6. CHARACTER DNA: Optional, but if present, character_dna.project_id === context.project_id.
+ * 7. FUNNEL STRATEGY vs CONTENT ITEM: validateItemAgainstFunnelStrategy() must pass.
+ * 
+ * FAIL-CLOSED: Does not mutate, repair, normalize, or fabricate IDs.
+ */
+export function validateProductionEngineContext(
+  context: unknown
+): ProductionEngineContextValidationResult {
+  if (!context || typeof context !== 'object') {
+    return {
+      isValid: false,
+      error: 'ProductionEngineContext wajib tersedia dan berupa object (FAIL CLOSED).',
+    };
+  }
+
+  const ctx = context as Record<string, any>;
+
+  // 1. ROOT PROJECT ID
+  if (typeof ctx.project_id !== 'string' || !ctx.project_id || !ctx.project_id.trim()) {
+    return {
+      isValid: false,
+      error: 'ProductionEngineContext.project_id wajib berupa non-empty string (FAIL CLOSED).',
+    };
+  }
+  const rootProjectId = ctx.project_id;
+
+  // 2. SHARED CONTENT CONTEXT
+  if (!ctx.shared_context || typeof ctx.shared_context !== 'object') {
+    return {
+      isValid: false,
+      error: 'ProductionEngineContext.shared_context wajib tersedia dan berupa object (FAIL CLOSED).',
+    };
+  }
+  if (
+    typeof ctx.shared_context.project_id !== 'string' ||
+    ctx.shared_context.project_id !== rootProjectId
+  ) {
+    return {
+      isValid: false,
+      error: `Project Identity Mismatch: SharedContentContext.project_id ("${ctx.shared_context.project_id}") tidak cocok dengan root project ID ("${rootProjectId}") (FAIL CLOSED).`,
+    };
+  }
+
+  // 3. FUNNEL STRATEGY
+  if (!ctx.funnel_strategy || typeof ctx.funnel_strategy !== 'object') {
+    return {
+      isValid: false,
+      error: 'ProductionEngineContext.funnel_strategy wajib tersedia dan berupa object (FAIL CLOSED).',
+    };
+  }
+
+  const isolationCheck = validateFunnelStrategyProjectIsolation(ctx.funnel_strategy, rootProjectId);
+  if (!isolationCheck.isValid) {
+    return {
+      isValid: false,
+      error: isolationCheck.error || `FunnelStrategy project isolation violation against project "${rootProjectId}" (FAIL CLOSED).`,
+    };
+  }
+
+  if (
+    !ctx.funnel_strategy.provenance ||
+    typeof ctx.funnel_strategy.provenance !== 'object' ||
+    typeof ctx.funnel_strategy.provenance.source_project_id !== 'string' ||
+    ctx.funnel_strategy.provenance.source_project_id !== rootProjectId
+  ) {
+    return {
+      isValid: false,
+      error: `Project Identity Mismatch: FunnelStrategy.provenance.source_project_id ("${ctx.funnel_strategy.provenance?.source_project_id}") tidak cocok dengan root project ID ("${rootProjectId}") (FAIL CLOSED).`,
+    };
+  }
+
+  // 4. CONTENT ITEM
+  if (!ctx.content_item || typeof ctx.content_item !== 'object') {
+    return {
+      isValid: false,
+      error: 'ProductionEngineContext.content_item wajib tersedia dan berupa object (FAIL CLOSED).',
+    };
+  }
+
+  const contentItem = ctx.content_item;
+  if (
+    typeof contentItem.content_item_id !== 'string' ||
+    !contentItem.content_item_id ||
+    !contentItem.content_item_id.trim()
+  ) {
+    return {
+      isValid: false,
+      error: 'ContentItem wajib memiliki content_item_id non-empty string (FAIL CLOSED).',
+    };
+  }
+
+  const hasSnakeProjectId = 'project_id' in contentItem && contentItem.project_id !== undefined && contentItem.project_id !== null;
+  const hasCamelProjectId = 'projectId' in contentItem && contentItem.projectId !== undefined && contentItem.projectId !== null;
+
+  if (!hasSnakeProjectId && !hasCamelProjectId) {
+    return {
+      isValid: false,
+      error: 'ContentItem wajib memiliki setidaknya satu project identity (project_id atau projectId) yang authoritative (FAIL CLOSED).',
+    };
+  }
+
+  if (hasSnakeProjectId) {
+    if (typeof contentItem.project_id !== 'string' || contentItem.project_id !== rootProjectId) {
+      return {
+        isValid: false,
+        error: `Project Identity Mismatch: ContentItem.project_id ("${contentItem.project_id}") tidak cocok dengan root project ID ("${rootProjectId}") (FAIL CLOSED).`,
+      };
+    }
+  }
+
+  if (hasCamelProjectId) {
+    if (typeof contentItem.projectId !== 'string' || contentItem.projectId !== rootProjectId) {
+      return {
+        isValid: false,
+        error: `Project Identity Mismatch: ContentItem.projectId ("${contentItem.projectId}") tidak cocok dengan root project ID ("${rootProjectId}") (FAIL CLOSED).`,
+      };
+    }
+  }
+
+  // 5. CANONICAL FUNNEL STAGE
+  const canonicalStage = ctx.canonical_funnel_stage;
+  const allowedStages: FunnelStage[] = ['TOFU', 'MOFU', 'BOFU'];
+  if (typeof canonicalStage !== 'string' || !allowedStages.includes(canonicalStage as FunnelStage)) {
+    return {
+      isValid: false,
+      error: `canonical_funnel_stage ("${canonicalStage}") tidak valid. Wajib salah satu dari nilai exact: 'TOFU', 'MOFU', atau 'BOFU' (FAIL CLOSED).`,
+    };
+  }
+
+  const parsedItemStage = parseStrictFunnelStage(contentItem.jenis);
+  if (!parsedItemStage) {
+    return {
+      isValid: false,
+      error: `ContentItem.jenis ("${contentItem.jenis}") tidak dapat diurai secara strict menjadi FunnelStage (FAIL CLOSED).`,
+    };
+  }
+
+  if (parsedItemStage !== canonicalStage) {
+    return {
+      isValid: false,
+      error: `Canonical Stage Mismatch: canonical_funnel_stage ("${canonicalStage}") tidak cocok dengan ContentItem.jenis yang diurai ("${parsedItemStage}") (FAIL CLOSED).`,
+    };
+  }
+
+  // 6. CHARACTER DNA (Optional, but project-isolated)
+  if (ctx.character_dna !== undefined && ctx.character_dna !== null) {
+    if (typeof ctx.character_dna !== 'object') {
+      return {
+        isValid: false,
+        error: 'CharacterDNA harus berupa object jika disertakan (FAIL CLOSED).',
+      };
+    }
+    if (
+      typeof ctx.character_dna.project_id !== 'string' ||
+      ctx.character_dna.project_id !== rootProjectId
+    ) {
+      return {
+        isValid: false,
+        error: `Project Isolation Violation: CharacterDNA.project_id ("${ctx.character_dna.project_id}") tidak cocok dengan root project ID ("${rootProjectId}") (FAIL CLOSED).`,
+      };
+    }
+  }
+
+  // 7. FUNNEL STRATEGY vs CONTENT ITEM
+  const strategyValidation = validateItemAgainstFunnelStrategy(contentItem, ctx.funnel_strategy);
+  if (!strategyValidation.isValid) {
+    return {
+      isValid: false,
+      error: `ContentItem tidak sesuai dengan authoritative FunnelStrategy: ${strategyValidation.violations.join('; ')} (FAIL CLOSED).`,
+    };
+  }
+
+  return {
+    isValid: true,
+  };
+}
+
 export interface BuildProductionEngineContextResult {
   isValid: boolean;
   context?: ProductionEngineContext;
@@ -212,6 +409,15 @@ export function buildProductionEngineContext(
     canonical_funnel_stage: parsedStage,
     character_dna: resolvedCharacterDNA,
   };
+
+  // Run canonical authority validator on the constructed context
+  const validation = validateProductionEngineContext(context);
+  if (!validation.isValid) {
+    return {
+      isValid: false,
+      error: validation.error || 'ProductionEngineContext authority validation failed (FAIL CLOSED).',
+    };
+  }
 
   return {
     isValid: true,

@@ -1,4 +1,4 @@
-import { ProductionEngineContext } from './production-engine-context';
+import { ProductionEngineContext, validateProductionEngineContext } from './production-engine-context';
 import { VideoProductionMode } from './production-contract';
 import { ProductAssetContext, ProductAssetReference } from './video-production-input';
 import { CharacterDNA } from './content-contract';
@@ -88,60 +88,11 @@ export function resolveVideoProductionReadiness(
 
   const { productionContext, selectedMode, productAssetContext } = options;
 
-  // 1. Validate ProductionEngineContext strictly
-  if (!productionContext || typeof productionContext !== 'object') {
+  // 1. Validate ProductionEngineContext strictly via canonical validator
+  const validation = validateProductionEngineContext(productionContext);
+  if (!validation.isValid) {
     throw new Error(
-      'resolveVideoProductionReadiness: ProductionEngineContext is required (FAIL CLOSED).'
-    );
-  }
-
-  if (
-    typeof productionContext.project_id !== 'string' ||
-    !productionContext.project_id.trim()
-  ) {
-    throw new Error(
-      'resolveVideoProductionReadiness: ProductionEngineContext.project_id must be a non-empty string (FAIL CLOSED).'
-    );
-  }
-
-  if (
-    !productionContext.shared_context ||
-    typeof productionContext.shared_context !== 'object' ||
-    typeof productionContext.shared_context.project_id !== 'string' ||
-    productionContext.shared_context.project_id !== productionContext.project_id
-  ) {
-    throw new Error(
-      'resolveVideoProductionReadiness: ProductionEngineContext.shared_context must be a valid object matching project_id (FAIL CLOSED).'
-    );
-  }
-
-  if (
-    !productionContext.funnel_strategy ||
-    typeof productionContext.funnel_strategy !== 'object'
-  ) {
-    throw new Error(
-      'resolveVideoProductionReadiness: ProductionEngineContext.funnel_strategy must be a valid object (FAIL CLOSED).'
-    );
-  }
-
-  if (
-    !productionContext.content_item ||
-    typeof productionContext.content_item !== 'object' ||
-    typeof productionContext.content_item.content_item_id !== 'string' ||
-    !productionContext.content_item.content_item_id.trim()
-  ) {
-    throw new Error(
-      'resolveVideoProductionReadiness: ProductionEngineContext.content_item must be a valid object with non-empty content_item_id (FAIL CLOSED).'
-    );
-  }
-
-  const canonicalStage = productionContext.canonical_funnel_stage;
-  if (
-    typeof canonicalStage !== 'string' ||
-    !['TOFU', 'MOFU', 'BOFU'].includes(canonicalStage)
-  ) {
-    throw new Error(
-      'resolveVideoProductionReadiness: ProductionEngineContext must contain an exact canonical_funnel_stage: TOFU, MOFU, or BOFU (FAIL CLOSED).'
+      `resolveVideoProductionReadiness: ${validation.error || 'Invalid ProductionEngineContext'} (FAIL CLOSED).`
     );
   }
 

@@ -32,6 +32,7 @@ import { SharedContentContext, ContentItem, CharacterDNA } from '../lib/content-
 import {
   ProductionEngineContext,
   buildProductionEngineContext,
+  validateProductionEngineContext,
   resolveProductionContentItemTarget,
 } from '../lib/production-engine-context';
 import {
@@ -5361,18 +5362,23 @@ assert(
   'C1C-A TEST 2: human_led without CharacterDNA is NOT READY (missing character)'
 );
 
-// TEST 3 — human_led with foreign project CharacterDNA -> NOT READY (project isolation)
+// TEST 3 — human_led with foreign project CharacterDNA -> FAIL CLOSED (ProductionEngineContext project isolation)
 const ctxWithForeignChar: ProductionEngineContext = {
   ...ctxWithoutChar.context!,
   character_dna: foreignCharacterDNA,
 };
-const resC1CA3 = resolveVideoProductionReadiness({
-  productionContext: ctxWithForeignChar,
-  selectedMode: 'human_led',
-});
+let threwOnForeignChar = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxWithForeignChar,
+    selectedMode: 'human_led',
+  });
+} catch (e: any) {
+  threwOnForeignChar = true;
+}
 assert(
-  resC1CA3.is_ready === false && resC1CA3.missing_required_inputs.includes('character'),
-  'C1C-A TEST 3: human_led with foreign project CharacterDNA is NOT READY (Project Isolation)'
+  threwOnForeignChar,
+  'C1C-A TEST 3: human_led with foreign project CharacterDNA in context fails closed (Project Isolation)'
 );
 
 // TEST 4 — human_led with CharacterDNA exists but character_id empty -> NOT READY
@@ -5587,6 +5593,306 @@ assert(!isValidProductScreenshotReference(null), 'C1C-A HELPER 4: null asset ref
 assert(isUsableCharacterDNA(validCharacterDNASaaS, 'proj_saas_123'), 'C1C-A HELPER 5: validCharacterDNASaaS is usable');
 assert(!isUsableCharacterDNA(foreignCharacterDNA, 'proj_saas_123'), 'C1C-A HELPER 6: foreign character is not usable for proj_saas_123');
 assert(!isUsableCharacterDNA(missingPromptCharacterDNA, 'proj_saas_123'), 'C1C-A HELPER 7: missing prompt character is not usable');
+
+// =============================================================
+// PHASE 3D-C1C-A BLOCKER: CANONICAL ProductionEngineContext VALIDATION TESTS
+// =============================================================
+
+// Base valid context built via buildProductionEngineContext
+const validContextResult = buildProductionEngineContext(
+  'proj_saas_123',
+  baseSharedContextSaaS,
+  baseFunnelStrategySaaS,
+  case1Item,
+  validCharacterDNASaaS
+);
+assert(validContextResult.isValid && !!validContextResult.context, 'C1C-A REGRESSION BASE: Valid context built');
+const canonicalValidCtx = validContextResult.context!;
+
+// TEST 1 — Valid canonical ProductionEngineContext -> valid and readiness remains unchanged
+const v1 = validateProductionEngineContext(canonicalValidCtx);
+assert(v1.isValid === true && !v1.error, 'C1C-A REGRESSION TEST 1: Valid canonical ProductionEngineContext passes validateProductionEngineContext');
+const r1 = resolveVideoProductionReadiness({
+  productionContext: canonicalValidCtx,
+  selectedMode: 'human_led',
+});
+assert(r1.is_ready === true && r1.missing_required_inputs.length === 0, 'C1C-A REGRESSION TEST 1b: Readiness remains READY with valid canonical context');
+
+// TEST 2 — Foreign FunnelStrategy project_id -> FAIL CLOSED
+const ctxForeignStrategyProject: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  funnel_strategy: {
+    ...canonicalValidCtx.funnel_strategy,
+    project_id: 'project_B',
+  },
+};
+const v2 = validateProductionEngineContext(ctxForeignStrategyProject);
+assert(v2.isValid === false && !!v2.error, 'C1C-A REGRESSION TEST 2a: Foreign FunnelStrategy project_id fails validation');
+let threwOnForeignStrategy = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxForeignStrategyProject,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnForeignStrategy = true;
+}
+assert(threwOnForeignStrategy, 'C1C-A REGRESSION TEST 2b: Foreign FunnelStrategy project_id fails closed in readiness');
+
+// TEST 3 — Foreign FunnelStrategy provenance -> FAIL CLOSED
+const ctxForeignStrategyProvenance: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  funnel_strategy: {
+    ...canonicalValidCtx.funnel_strategy,
+    project_id: canonicalValidCtx.project_id,
+    provenance: {
+      ...canonicalValidCtx.funnel_strategy.provenance,
+      source_project_id: 'project_B',
+    },
+  },
+};
+const v3 = validateProductionEngineContext(ctxForeignStrategyProvenance);
+assert(v3.isValid === false && !!v3.error, 'C1C-A REGRESSION TEST 3a: Foreign FunnelStrategy provenance fails validation');
+let threwOnForeignProvenance = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxForeignStrategyProvenance,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnForeignProvenance = true;
+}
+assert(threwOnForeignProvenance, 'C1C-A REGRESSION TEST 3b: Foreign FunnelStrategy provenance fails closed in readiness');
+
+// TEST 4 — Foreign ContentItem project_id -> FAIL CLOSED
+const ctxForeignItemProjectId: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  content_item: {
+    ...canonicalValidCtx.content_item,
+    project_id: 'project_B',
+  },
+};
+const v4 = validateProductionEngineContext(ctxForeignItemProjectId);
+assert(v4.isValid === false && !!v4.error, 'C1C-A REGRESSION TEST 4a: Foreign ContentItem project_id fails validation');
+let threwOnForeignItemProjectId = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxForeignItemProjectId,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnForeignItemProjectId = true;
+}
+assert(threwOnForeignItemProjectId, 'C1C-A REGRESSION TEST 4b: Foreign ContentItem project_id fails closed in readiness');
+
+// TEST 5 — Foreign ContentItem projectId -> FAIL CLOSED
+const ctxForeignItemCamelProjectId: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  content_item: {
+    ...canonicalValidCtx.content_item,
+    projectId: 'project_B',
+  } as any,
+};
+const v5 = validateProductionEngineContext(ctxForeignItemCamelProjectId);
+assert(v5.isValid === false && !!v5.error, 'C1C-A REGRESSION TEST 5a: Foreign ContentItem projectId fails validation');
+let threwOnForeignItemCamelProjectId = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxForeignItemCamelProjectId,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnForeignItemCamelProjectId = true;
+}
+assert(threwOnForeignItemCamelProjectId, 'C1C-A REGRESSION TEST 5b: Foreign ContentItem projectId fails closed in readiness');
+
+// TEST 6 — Conflicting dual ContentItem identity -> FAIL CLOSED
+const ctxConflictingDualProjectId: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  content_item: {
+    ...canonicalValidCtx.content_item,
+    project_id: 'proj_saas_123',
+    projectId: 'project_B',
+  } as any,
+};
+const v6 = validateProductionEngineContext(ctxConflictingDualProjectId);
+assert(v6.isValid === false && !!v6.error, 'C1C-A REGRESSION TEST 6a: Conflicting dual ContentItem identity fails validation');
+let threwOnConflictingDual = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxConflictingDualProjectId,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnConflictingDual = true;
+}
+assert(threwOnConflictingDual, 'C1C-A REGRESSION TEST 6b: Conflicting dual ContentItem identity fails closed in readiness');
+
+// TEST 7 — Missing ContentItem project identity (has content_item_id but no project_id/projectId) -> FAIL CLOSED
+const itemWithoutProjectIdentity = { ...canonicalValidCtx.content_item };
+delete (itemWithoutProjectIdentity as any).project_id;
+delete (itemWithoutProjectIdentity as any).projectId;
+const ctxMissingItemProjectIdentity: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  content_item: itemWithoutProjectIdentity,
+};
+const v7 = validateProductionEngineContext(ctxMissingItemProjectIdentity);
+assert(v7.isValid === false && !!v7.error, 'C1C-A REGRESSION TEST 7a: Missing ContentItem project identity fails validation');
+let threwOnMissingItemProjectIdentity = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxMissingItemProjectIdentity,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnMissingItemProjectIdentity = true;
+}
+assert(threwOnMissingItemProjectIdentity, 'C1C-A REGRESSION TEST 7b: Missing ContentItem project identity fails closed in readiness');
+
+// TEST 8 — Missing content_item_id -> FAIL CLOSED
+const regItemWithoutId = { ...canonicalValidCtx.content_item, content_item_id: '' };
+const ctxMissingItemId: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  content_item: regItemWithoutId,
+};
+const v8 = validateProductionEngineContext(ctxMissingItemId);
+assert(v8.isValid === false && !!v8.error, 'C1C-A REGRESSION TEST 8a: Empty content_item_id fails validation');
+let threwOnMissingItemId = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxMissingItemId,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnMissingItemId = true;
+}
+assert(threwOnMissingItemId, 'C1C-A REGRESSION TEST 8b: Empty content_item_id fails closed in readiness');
+
+// TEST 9 — Canonical stage mismatch: content_item.jenis resolves strictly to MOFU but canonical_funnel_stage = TOFU -> FAIL CLOSED
+const ctxStageMismatch: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  content_item: {
+    ...canonicalValidCtx.content_item,
+    jenis: 'MOFU',
+  },
+  canonical_funnel_stage: 'TOFU',
+};
+const v9 = validateProductionEngineContext(ctxStageMismatch);
+assert(v9.isValid === false && !!v9.error, 'C1C-A REGRESSION TEST 9a: Canonical stage mismatch fails validation');
+let threwOnStageMismatch = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxStageMismatch,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnStageMismatch = true;
+}
+assert(threwOnStageMismatch, 'C1C-A REGRESSION TEST 9b: Canonical stage mismatch fails closed in readiness');
+
+// TEST 10 — Malformed canonical stage: ' TOFU ' -> FAIL CLOSED
+const ctxMalformedStage: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  canonical_funnel_stage: ' TOFU ' as any,
+};
+const v10 = validateProductionEngineContext(ctxMalformedStage);
+assert(v10.isValid === false && !!v10.error, 'C1C-A REGRESSION TEST 10a: Malformed canonical stage fails validation');
+let threwOnRegressionMalformedStage = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxMalformedStage,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnRegressionMalformedStage = true;
+}
+assert(threwOnRegressionMalformedStage, 'C1C-A REGRESSION TEST 10b: Malformed canonical stage fails closed in readiness');
+
+// TEST 11 — Foreign CharacterDNA: character_dna.project_id = project_B while context.project_id = project_A -> FAIL CLOSED
+const ctxForeignCharDna: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  character_dna: {
+    ...validCharacterDNASaaS,
+    project_id: 'project_B',
+  },
+};
+const v11 = validateProductionEngineContext(ctxForeignCharDna);
+assert(v11.isValid === false && !!v11.error, 'C1C-A REGRESSION TEST 11a: Foreign CharacterDNA fails validation');
+let threwOnForeignCharDna = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxForeignCharDna,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnForeignCharDna = true;
+}
+assert(threwOnForeignCharDna, 'C1C-A REGRESSION TEST 11b: Foreign CharacterDNA fails closed in readiness');
+
+// TEST 12 — Motion Explainer CANNOT bypass malformed authority
+// Even though motion_explainer needs no external uploaded assets, malformed ProductionEngineContext must NOT yield is_ready: true
+let threwOnMotionExplainerMalformed = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxForeignStrategyProject, // Malformed authority: foreign FunnelStrategy project_id
+    selectedMode: 'motion_explainer',
+    productAssetContext: null,
+  });
+} catch {
+  threwOnMotionExplainerMalformed = true;
+}
+assert(
+  threwOnMotionExplainerMalformed,
+  'C1C-A REGRESSION TEST 12: motion_explainer CANNOT bypass malformed authority (fails closed, never returns is_ready = true)'
+);
+
+// TEST 13 — Human Led valid authority remains unchanged (Valid context + valid same-project CharacterDNA) -> READY
+const r13 = resolveVideoProductionReadiness({
+  productionContext: canonicalValidCtx,
+  selectedMode: 'human_led',
+  productAssetContext: null,
+});
+assert(
+  r13.mode === 'human_led' && r13.is_ready === true && r13.missing_required_inputs.length === 0,
+  'C1C-A REGRESSION TEST 13: human_led with valid authority remains READY'
+);
+
+// TEST 14 — Product Demo valid authority remains unchanged (Valid context + valid product_name & screenshot) -> READY
+const r14 = resolveVideoProductionReadiness({
+  productionContext: canonicalValidCtx,
+  selectedMode: 'product_demo',
+  productAssetContext: {
+    product_name: 'ALCO Analytics Engine',
+    product_type: 'Software',
+    screenshots: [validScreenshotRef],
+    feature_focus: ['Dashboard'],
+    demo_steps: ['Open Dashboard'],
+  },
+});
+assert(
+  r14.mode === 'product_demo' && r14.is_ready === true && r14.missing_required_inputs.length === 0,
+  'C1C-A REGRESSION TEST 14: product_demo with valid authority remains READY'
+);
+
+// TEST 15 — Motion Explainer valid canonical authority (Valid context + no CharacterDNA + no ProductAssetContext) -> READY
+const ctxValidWithoutChar: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  character_dna: null,
+};
+const v15 = validateProductionEngineContext(ctxValidWithoutChar);
+assert(v15.isValid === true, 'C1C-A REGRESSION TEST 15a: Valid context without character passes validation');
+const r15 = resolveVideoProductionReadiness({
+  productionContext: ctxValidWithoutChar,
+  selectedMode: 'motion_explainer',
+  productAssetContext: null,
+});
+assert(
+  r15.mode === 'motion_explainer' &&
+  r15.is_ready === true &&
+  r15.missing_required_inputs.length === 0 &&
+  r15.required_inputs.length === 0,
+  'C1C-A REGRESSION TEST 15b: motion_explainer with valid canonical authority remains READY'
+);
 
 // -------------------------------------------------------------
 // RESULTS SUMMARY
