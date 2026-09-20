@@ -49,6 +49,7 @@ import {
   getCompletedVideoSceneCount,
   areAllVideoScenesCreated,
 } from '@/lib/video-scene-completion';
+import { VideoProductionGateResult } from '@/lib/video-production-gate';
 
 interface VideoPanelProps {
   activeItem?: any;
@@ -75,6 +76,11 @@ interface VideoPanelProps {
   videoProductionReadiness?: VideoProductionReadiness | null;
   videoSceneCompletionState?: VideoSceneCompletionState | null;
   handleToggleSceneCompletion?: (sceneNumber: 1 | 2 | 3, isCompleted: boolean) => void;
+  videoProductionGate?: VideoProductionGateResult | null;
+  handlePrepareVideoProductionPackage?: () => void;
+  videoProductionPackagePreparing?: boolean;
+  videoProductionPackageError?: string | null;
+  videoProductionPackagePrepared?: boolean;
 }
 
 export default function VideoPanel(props: VideoPanelProps) {
@@ -103,6 +109,11 @@ export default function VideoPanel(props: VideoPanelProps) {
     videoProductionReadiness,
     videoSceneCompletionState,
     handleToggleSceneCompletion,
+    videoProductionGate,
+    handlePrepareVideoProductionPackage,
+    videoProductionPackagePreparing,
+    videoProductionPackageError,
+    videoProductionPackagePrepared,
   } = props;
 
   // Single active scene state for focused progressive workspace
@@ -497,6 +508,11 @@ export default function VideoPanel(props: VideoPanelProps) {
           handleDismissNextStep={handleDismissNextStep}
           videoSceneCompletionState={videoSceneCompletionState}
           handleToggleSceneCompletion={handleToggleSceneCompletion}
+          videoProductionGate={videoProductionGate}
+          handlePrepareVideoProductionPackage={handlePrepareVideoProductionPackage}
+          videoProductionPackagePreparing={videoProductionPackagePreparing}
+          videoProductionPackageError={videoProductionPackageError}
+          videoProductionPackagePrepared={videoProductionPackagePrepared}
         />
       )}
 
@@ -665,6 +681,11 @@ function WorkspaceCanonicalSceneView({
   handleDismissNextStep,
   videoSceneCompletionState,
   handleToggleSceneCompletion,
+  videoProductionGate,
+  handlePrepareVideoProductionPackage,
+  videoProductionPackagePreparing,
+  videoProductionPackageError,
+  videoProductionPackagePrepared,
 }: {
   activeCandidate: VideoProductionCandidate;
   activeSceneNumber: number;
@@ -679,6 +700,11 @@ function WorkspaceCanonicalSceneView({
   handleDismissNextStep: (key: string) => void;
   videoSceneCompletionState?: VideoSceneCompletionState | null;
   handleToggleSceneCompletion?: (sceneNumber: 1 | 2 | 3, isCompleted: boolean) => void;
+  videoProductionGate?: VideoProductionGateResult | null;
+  handlePrepareVideoProductionPackage?: () => void;
+  videoProductionPackagePreparing?: boolean;
+  videoProductionPackageError?: string | null;
+  videoProductionPackagePrepared?: boolean;
 }) {
   const canonicalScenes = activeCandidate.production_details.scenes;
   const activeScene: VideoSceneProductionPlan =
@@ -1166,6 +1192,100 @@ function WorkspaceCanonicalSceneView({
             </div>
           </div>
         )}
+      </div>
+
+      {/* VIDEO PRODUCTION GATE AREA (Phase 3D-C) */}
+      <div
+        className={`p-4.5 rounded-2xl border transition-all ${
+          videoProductionGate?.is_allowed
+            ? 'bg-emerald-50/60 border-emerald-200 shadow-xs'
+            : 'bg-[#f6f3ee] border-[#e7e0d4]'
+        }`}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
+          <div className="space-y-1.5 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Package
+                size={16}
+                className={videoProductionGate?.is_allowed ? 'text-emerald-700' : 'text-stone-600'}
+              />
+              <span className="text-xs font-bold text-stone-900">
+                Gerbang Produksi Video (Video Production Gate)
+              </span>
+              {videoProductionPackagePrepared && (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-300 text-[10px] font-bold text-emerald-800 flex items-center gap-1">
+                  <Check size={11} className="text-emerald-700" />
+                  <span>Paket Produksi Siap ✓</span>
+                </span>
+              )}
+            </div>
+
+            {videoProductionGate?.is_allowed ? (
+              <div className="space-y-0.5">
+                <p className="text-xs font-semibold text-emerald-800 flex items-center gap-1.5">
+                  <Check size={13} className="text-emerald-600 shrink-0" />
+                  <span>3/3 Clip Dibuat ✓ &mdash; Semua syarat produksi video terpenuhi.</span>
+                </p>
+                <p className="text-[11px] text-stone-600">
+                  Klik tombol di samping untuk menyiapkan dan menyimpan paket produksi video kanonikal.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-stone-700">
+                  Belum Siap Menyiapkan Paket Produksi
+                </p>
+                {videoProductionGate?.blockers && videoProductionGate.blockers.length > 0 && (
+                  <div className="space-y-0.5">
+                    {videoProductionGate.blockers.slice(0, 2).map((blocker, idx) => (
+                      <p key={idx} className="text-[11px] text-amber-800 flex items-start gap-1 leading-tight">
+                        <AlertTriangle size={12} className="shrink-0 text-amber-600 mt-0.5" />
+                        <span>{blocker}</span>
+                      </p>
+                    ))}
+                    {videoProductionGate.blockers.length > 2 && (
+                      <p className="text-[10px] text-stone-500 italic pl-4">
+                        +{videoProductionGate.blockers.length - 2} syarat lainnya belum terpenuhi.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {videoProductionPackageError && (
+              <p className="text-xs text-rose-600 font-semibold flex items-center gap-1">
+                <AlertTriangle size={12} className="shrink-0 text-rose-600" />
+                <span>{videoProductionPackageError}</span>
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={!videoProductionGate?.is_allowed || videoProductionPackagePreparing}
+              onClick={handlePrepareVideoProductionPackage}
+              className={`px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-xs flex items-center gap-2 ${
+                videoProductionGate?.is_allowed && !videoProductionPackagePreparing
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
+                  : 'bg-stone-200 text-stone-400 cursor-not-allowed border border-stone-300'
+              }`}
+            >
+              {videoProductionPackagePreparing ? (
+                <>
+                  <div className="w-3.5 h-3.5 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+                  <span>Menyiapkan Paket...</span>
+                </>
+              ) : (
+                <>
+                  <Package size={14} />
+                  <span>Siapkan Paket Produksi Video</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

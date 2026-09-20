@@ -73,8 +73,9 @@ import {
   isAuthoritativeProductionOutputSource,
 } from '@/lib/production-output-source';
 import { prepareProductionPackage } from '@/lib/production-package-workflow';
-import { saveProductionPackage } from '@/lib/production-package-storage';
+import { saveProductionPackage, loadProductionPackage } from '@/lib/production-package-storage';
 import { ProductionPackageMetadata } from '@/lib/production-engine';
+import { evaluateVideoProductionGate } from '@/lib/video-production-gate';
 import { injectCharacterToPrompt } from '@/lib/character-prompt';
 import CharacterDNASection from '@/components/CharacterDNA';
 import ProductionProgressWidget from '@/components/calendar/ProductionProgressWidget';
@@ -4686,7 +4687,7 @@ ${formatDirection}${revisionDirective}`;
     } catch {
       return [];
     }
-  }, [normalizedVideoOutput, tryParseJSON]);
+  }, [normalizedVideoOutput]);
 
   const activeVideoCandidate = useMemo<VideoProductionCandidate | null>(() => {
     if (!selectedVideoProductionMode || canonicalVideoCandidates.length === 0) return null;
@@ -4794,6 +4795,182 @@ ${formatDirection}${revisionDirective}`;
     }
   };
 
+  // Phase 3D-C: Video Production Gate & Package State
+  const [videoProductionPackagePreparing, setVideoProductionPackagePreparing] =
+    useState<boolean>(false);
+  const [videoProductionPackageError, setVideoProductionPackageError] = useState<string | null>(
+    null
+  );
+  const [videoProductionPackagePrepared, setVideoProductionPackagePrepared] =
+    useState<boolean>(false);
+
+  // Sync prepared state strictly scoped to (canonicalProjectId, sourceItem?.content_item_id)
+  useEffect(() => {
+    if (!canonicalProjectId || !sourceItem?.content_item_id) {
+      setVideoProductionPackagePrepared(false);
+      setVideoProductionPackageError(null);
+      return;
+    }
+    const existingPkg = loadProductionPackage(
+      canonicalProjectId,
+      sourceItem.content_item_id,
+      'video'
+    );
+    setVideoProductionPackagePrepared(Boolean(existingPkg && existingPkg.asset_type === 'video'));
+    setVideoProductionPackageError(null);
+  }, [canonicalProjectId, sourceItem?.content_item_id]);
+
+  // Video Production Gate Evaluation
+  const videoProductionGate = useMemo(() => {
+    return evaluateVideoProductionGate({
+      production_context: productionEngineContext,
+      source_item: sourceItem,
+      output_source: videoOutputSource,
+      selected_mode: selectedVideoProductionMode,
+      selected_candidate: activeVideoCandidate,
+      readiness: videoProductionReadiness,
+      completion_state: videoSceneCompletionState,
+      current_scene_plan_signature: currentScenePlanSignature,
+      current_production_input_signature: currentVideoProductionInputSignature,
+    });
+  }, [
+    productionEngineContext,
+    sourceItem,
+    videoOutputSource,
+    selectedVideoProductionMode,
+    activeVideoCandidate,
+    videoProductionReadiness,
+    videoSceneCompletionState,
+    currentScenePlanSignature,
+    currentVideoProductionInputSignature,
+  ]);
+
+  // Explicit Video Production Package Preparation Handler
+  const handlePrepareVideoProductionPackage = () => {
+    // 1. Re-evaluate gate directly to guarantee fail-closed security
+    const gateCheck = evaluateVideoProductionGate({
+      production_context: productionEngineContext,
+      source_item: sourceItem,
+      output_source: videoOutputSource,
+      selected_mode: selectedVideoProductionMode,
+      selected_candidate: activeVideoCandidate,
+      readiness: videoProductionReadiness,
+      completion_state: videoSceneCompletionState,
+      current_scene_plan_signature: currentScenePlanSignature,
+      current_production_input_signature: currentVideoProductionInputSignature,
+    });
+
+    if (!gateCheck.is_allowed) {
+      const blockerMsg = gateCheck.blockers[0] || 'Syarat produksi video belum terpenuhi.';
+      setVideoProductionPackageError(blockerMsg);
+      showToast(`Gagal: ${blockerMsg}`);
+      return;
+    }
+
+    // 2. Require canonical inputs
+    if (
+      !canonicalProjectId ||
+      !sourceItem ||
+      !sharedContextSnapshot ||
+      !funnelStrategySnapshot ||
+      !activeVideoCandidate
+    ) {
+      const missingMsg = 'Data proyek atau candidate video tidak lengkap.';
+      setVideoProductionPackageError(missingMsg);
+      showToast(`Gagal: ${missingMsg}`);
+      return;
+    }
+
+    // 3. Verify sourceItem.content_item_id is authoritative
+    if (!sourceItem.content_item_id || !sourceItem.content_item_id.trim()) {
+      const idMsg = 'Identitas sourceItem.content_item_id tidak valid.';
+      setVideoProductionPackageError(idMsg);
+      showToast(`Gagal: ${idMsg}`);
+      return;
+    }
+
+    // 4. Verify authoritative output source
+    if (!isAuthoritativeProductionOutputSource(videoOutputSource)) {
+      const srcMsg = 'Sumber output video belum otoritatif.';
+      setVideoProductionPackageError(srcMsg);
+      showToast(`Gagal: ${srcMsg}`);
+      return;
+    }
+
+    // 5. Generate metadata ONLY AFTER gate passes
+    if (typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') {
+      const cryptoErr =
+        'API crypto.randomUUID tidak tersedia untuk pembuatan metadata production package.';
+      setVideoProductionPackageError(cryptoErr);
+      showToast('Gagal: Crypto API tidak tersedia.');
+      return;
+    }
+
+    const packageMetadata: ProductionPackageMetadata = {
+      package_id: crypto.randomUUID(),
+      created_at: new Date().toISOString(),
+    };
+
+    setVideoProductionPackagePreparing(true);
+    setVideoProductionPackageError(null);
+
+    // 6. Prepare production package using exact activeVideoCandidate.candidate_id
+    const prepResult = prepareProductionPackage({
+      projectId: canonicalProjectId,
+      sharedContext: sharedContextSnapshot,
+      funnelStrategy: funnelStrategySnapshot,
+      contentItem: sourceItem,
+      characterDNA: productionEngineContext?.character_dna || undefined,
+      candidates: canonicalVideoCandidates,
+      selectedCandidateId: activeVideoCandidate.candidate_id,
+      metadata: packageMetadata,
+    });
+
+    if (!prepResult.ok || !prepResult.package) {
+      const prepErr =
+        (!prepResult.ok ? (prepResult as any).error : null) ||
+        'Gagal menyiapkan production package video.';
+      setVideoProductionPackageError(prepErr);
+      setVideoProductionPackagePreparing(false);
+      showToast(`Gagal prepare package: ${prepErr}`);
+      return;
+    }
+
+    const productionPackage = prepResult.package;
+
+    // 7. Verify asset_type === 'video'
+    if (productionPackage.asset_type !== 'video') {
+      const typeErr = `Production package asset_type [${productionPackage.asset_type}] bukan video.`;
+      setVideoProductionPackageError(typeErr);
+      setVideoProductionPackagePreparing(false);
+      showToast(`Gagal: ${typeErr}`);
+      return;
+    }
+
+    const packageValidation = validateProductionPackage(productionPackage);
+    if (!packageValidation.isValid) {
+      const validErr = packageValidation.error || 'Validasi production package video gagal.';
+      setVideoProductionPackageError(validErr);
+      setVideoProductionPackagePreparing(false);
+      showToast(`Gagal: ${validErr}`);
+      return;
+    }
+
+    // 8. Save using existing saveProductionPackage storage
+    const saveResult = saveProductionPackage(canonicalProjectId, productionPackage);
+    if (!saveResult.ok) {
+      const saveErr = saveResult.error || 'Gagal menyimpan production package video.';
+      setVideoProductionPackageError(saveErr);
+      setVideoProductionPackagePreparing(false);
+      showToast(`Gagal save package: ${saveErr}`);
+      return;
+    }
+
+    setVideoProductionPackagePreparing(false);
+    setVideoProductionPackagePrepared(true);
+    showToast('Paket produksi video berhasil disiapkan.');
+  };
+
   // Render content of active tab dynamically with premium workshop components
   const renderTabContent = () => {
     const funnelRules = getFunnelRules(normalizeFunnelStage(activeItem?.jenis || ""));
@@ -4815,6 +4992,11 @@ ${formatDirection}${revisionDirective}`;
       savedCharacters, selectedCharacterId, handleSelectCharacter, handleCreateCharacterClick,
       productAssetContext, setProductAssetContext: saveProductAssetContext, videoProductionReadiness,
       videoSceneCompletionState, handleToggleSceneCompletion,
+      videoProductionGate,
+      handlePrepareVideoProductionPackage,
+      videoProductionPackagePreparing,
+      videoProductionPackageError,
+      videoProductionPackagePrepared,
     };
 
     if (activeTab === 'image') return <ImagePanel {...commonProps} />;
