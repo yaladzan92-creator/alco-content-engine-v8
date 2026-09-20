@@ -6836,6 +6836,13 @@ assert(
   'C1C-D STATIC GUARD 4: buildVideoScenePlanSignature input must be strictly VideoProductionCandidate | null | undefined'
 );
 
+// GUARD 5: Static check on scripts/test-video-scene-completion.ts ensuring no 'as any' exists
+const videoSceneCompletionTestSrc = fs.readFileSync(path.join(process.cwd(), 'scripts/test-video-scene-completion.ts'), 'utf-8');
+assert(
+  !videoSceneCompletionTestSrc.includes('as any'),
+  'C1C-D STATIC GUARD 5: scripts/test-video-scene-completion.ts must NOT contain "as any"'
+);
+
 // -------------------------------------------------------------
 // RESULTS SUMMARY
 // -------------------------------------------------------------

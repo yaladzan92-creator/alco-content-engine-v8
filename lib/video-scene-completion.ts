@@ -62,6 +62,14 @@ export function buildVideoScenePlanSignature(
   const scenes = details.scenes;
   if (!Array.isArray(scenes) || scenes.length !== 3) return '';
 
+  const validSceneTypes = [
+    'talking_head',
+    'product_screen',
+    'graphic_motion',
+    'b_roll',
+    'end_card',
+  ];
+
   const normalizedSceneStrings: string[] = [];
 
   for (let i = 0; i < scenes.length; i++) {
@@ -70,15 +78,29 @@ export function buildVideoScenePlanSignature(
 
     const expectedNum = (i + 1) as 1 | 2 | 3;
     if (scene.scene_number !== expectedNum) return '';
-    if (typeof scene.duration_seconds !== 'number' || scene.duration_seconds <= 0) return '';
-    if (typeof scene.purpose !== 'string') return '';
-    if (typeof scene.visual_direction !== 'string') return '';
-    if (typeof scene.action !== 'string') return '';
-    if (typeof scene.camera !== 'string') return '';
+
+    if (!validSceneTypes.includes(scene.scene_type)) return '';
+
+    if (
+      typeof scene.duration_seconds !== 'number' ||
+      !Number.isFinite(scene.duration_seconds) ||
+      scene.duration_seconds <= 0
+    ) {
+      return '';
+    }
+
+    if (typeof scene.purpose !== 'string' || scene.purpose.trim().length === 0) return '';
+    if (typeof scene.visual_direction !== 'string' || scene.visual_direction.trim().length === 0) return '';
+    if (typeof scene.action !== 'string' || scene.action.trim().length === 0) return '';
+    if (typeof scene.camera !== 'string' || scene.camera.trim().length === 0) return '';
+
     if (typeof scene.voiceover !== 'string') return '';
     if (typeof scene.on_screen_text !== 'string') return '';
-    if (typeof scene.scene_type !== 'string') return '';
+
     if (!Array.isArray(scene.required_assets)) return '';
+    for (const asset of scene.required_assets) {
+      if (typeof asset !== 'string' || asset.trim().length === 0) return '';
+    }
 
     const requiredAssets = [...scene.required_assets].sort().join(',');
 
