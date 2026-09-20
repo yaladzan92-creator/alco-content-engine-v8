@@ -952,3 +952,15 @@ export function buildVideoProductionCandidate(params: {
   };
 }
 
+export {
+  resolveSelectedVideoProductionCandidate,
+  getSceneTypeLabel,
+  getRequiredAssetLabel,
+  buildCanonicalSceneProductionInstructions,
+} from './video-canonical-scene-resolver';
+export type {
+  CanonicalSceneResolveParams,
+  BuildSceneInstructionsParams,
+  SceneProductionInstructions,
+} from './video-canonical-scene-resolver';
+

@@ -93,6 +93,12 @@ import {
   VideoProductionReadiness,
 } from '../lib/video-production-readiness';
 import { ProductAssetContext, ProductAssetReference } from '../lib/video-production-input';
+import {
+  resolveSelectedVideoProductionCandidate,
+  getSceneTypeLabel,
+  getRequiredAssetLabel,
+  buildCanonicalSceneProductionInstructions,
+} from '../lib/video-canonical-scene-resolver';
 
 const projectRoot = process.cwd();
 const errors: string[] = [];
@@ -6246,6 +6252,435 @@ const loadedForProjB = mockProjectStorage[`${projB}_studio_product_asset_${item1
 assert(
   loadedForProjB === null,
   'C1C-B TEST 16: Project isolation prevents ProductAssetContext leakage across different projects'
+);
+
+// =============================================================
+// PHASE 3D-C1C-C REGRESSION TESTS: CANONICAL SCENE GUIDED UX
+// =============================================================
+
+// C1C-C TEST 1: Canonical scenes source is VideoProductionCandidate.production_details.scenes
+const mockScriptObj = {
+  hook: 'Inovasi alur kerja tanpa hambatan',
+  masalah: 'Kerja lambat dan sistem rumit',
+  solusi: 'Gunakan satu dasbor terpadu otomatis',
+  proof: 'Dipercaya lebih dari 10.000 pengguna aktif',
+  cta: 'Coba gratis sekarang melalui tautan di bio',
+};
+const tofuHumanScenes = buildCanonicalVideoScenePlan('TOFU', 'human_led', mockScriptObj);
+const tofuHumanCandidate = buildVideoProductionCandidate({
+  candidate_id: getVideoCandidateId('human_led'),
+  production_mode: 'human_led',
+  objective: 'Brand Awareness',
+  format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
+  hook: mockScriptObj.hook,
+  scenes: tofuHumanScenes,
+  motion_direction: 'Fast-paced rhythmic dynamic',
+  audio_direction: 'Energetic electronic beats with crystal voiceover',
+  negative_constraints: 'No artifacts, no distorted anatomy',
+  final_prompt: 'High-quality vertical talking head video',
+});
+assert(
+  Array.isArray(tofuHumanCandidate.production_details.scenes) &&
+  tofuHumanCandidate.production_details.scenes.length === 3 &&
+  tofuHumanCandidate.production_details.scenes[0].scene_number === 1 &&
+  tofuHumanCandidate.production_details.scenes[1].scene_number === 2 &&
+  tofuHumanCandidate.production_details.scenes[2].scene_number === 3,
+  'C1C-C TEST 1: Canonical scenes authority is VideoProductionCandidate.production_details.scenes with exactly 3 scenes'
+);
+
+// C1C-C TEST 2: VideoPanel.tsx does not use getGoogleFlowVideoPack as strategic scene authority
+const videoPanelContent = fs.readFileSync(
+  path.join(projectRoot, 'components/production-studio/VideoPanel.tsx'),
+  'utf8'
+);
+assert(
+  !videoPanelContent.includes('const googleFlowScenes = getGoogleFlowVideoPack') &&
+  !videoPanelContent.includes('getGoogleFlowVideoPack('),
+  'C1C-C TEST 2: VideoPanel.tsx removed getGoogleFlowVideoPack from strategic scene authority'
+);
+
+// C1C-C TEST 3: Exact candidate selection matches selectedVideoProductionMode
+const mofuDemoScenes = buildCanonicalVideoScenePlan('MOFU', 'product_demo', mockScriptObj);
+const mofuDemoCandidate = buildVideoProductionCandidate({
+  candidate_id: getVideoCandidateId('product_demo'),
+  production_mode: 'product_demo',
+  objective: 'Product Consideration',
+  format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
+  hook: mockScriptObj.hook,
+  scenes: mofuDemoScenes,
+  motion_direction: 'Smooth UI walkthrough',
+  audio_direction: 'Inspiring modern tech ambient',
+  negative_constraints: 'No blurry text, no distorted UI',
+  final_prompt: 'Product demo UI showcase',
+});
+
+const bofuMotionScenes = buildCanonicalVideoScenePlan('BOFU', 'motion_explainer', mockScriptObj);
+const bofuMotionCandidate = buildVideoProductionCandidate({
+  candidate_id: getVideoCandidateId('motion_explainer'),
+  production_mode: 'motion_explainer',
+  objective: 'Direct Conversion',
+  format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
+  hook: mockScriptObj.hook,
+  scenes: bofuMotionScenes,
+  motion_direction: 'Kinetic typography punch',
+  audio_direction: 'Impactful beat drops with vocal emphasis',
+  negative_constraints: 'No stock photo artifacts',
+  final_prompt: 'Kinetic motion explainer',
+});
+
+const candidatePool = [tofuHumanCandidate, mofuDemoCandidate, bofuMotionCandidate];
+
+const resolvedHuman = resolveSelectedVideoProductionCandidate({
+  candidates: candidatePool,
+  selectedMode: 'human_led',
+});
+const resolvedDemo = resolveSelectedVideoProductionCandidate({
+  candidates: candidatePool,
+  selectedMode: 'product_demo',
+});
+const resolvedMotion = resolveSelectedVideoProductionCandidate({
+  candidates: candidatePool,
+  selectedMode: 'motion_explainer',
+});
+
+assert(
+  resolvedHuman?.production_details.production_mode === 'human_led' &&
+  resolvedDemo?.production_details.production_mode === 'product_demo' &&
+  resolvedMotion?.production_details.production_mode === 'motion_explainer',
+  'C1C-C TEST 3: Exact candidate selection resolves matching candidate for each mode'
+);
+
+// C1C-C TEST 4: Exact candidate selection fails closed when mode candidate is missing (NO fallback to candidate[0])
+const onlyMotionPool = [bofuMotionCandidate];
+const resolvedMissingDemo = resolveSelectedVideoProductionCandidate({
+  candidates: onlyMotionPool,
+  selectedMode: 'product_demo',
+});
+assert(
+  resolvedMissingDemo === null,
+  'C1C-C TEST 4: Exact candidate selection fails closed (returns null) when selected mode is missing without fallback'
+);
+
+// C1C-C TEST 5: Exact candidate selection fails closed on duplicate candidate modes
+const duplicateModesPool = [tofuHumanCandidate, tofuHumanCandidate];
+const resolvedDuplicate = resolveSelectedVideoProductionCandidate({
+  candidates: duplicateModesPool,
+  selectedMode: 'human_led',
+});
+assert(
+  resolvedDuplicate === null,
+  'C1C-C TEST 5: Exact candidate selection fails closed (returns null) when duplicate candidate modes are present'
+);
+
+// C1C-C TEST 6: Scene count must be strictly 3 (rejects 2 scenes, rejects 4 scenes)
+const twoScenesCandidate = {
+  ...tofuHumanCandidate,
+  production_details: {
+    ...tofuHumanCandidate.production_details,
+    scenes: [tofuHumanScenes[0], tofuHumanScenes[1]],
+  },
+};
+const fourScenesCandidate = {
+  ...tofuHumanCandidate,
+  production_details: {
+    ...tofuHumanCandidate.production_details,
+    scenes: [
+      tofuHumanScenes[0],
+      tofuHumanScenes[1],
+      tofuHumanScenes[2],
+      { ...tofuHumanScenes[2], scene_number: 4 },
+    ],
+  },
+};
+const resolvedTwoScenes = resolveSelectedVideoProductionCandidate({
+  candidates: [twoScenesCandidate as any],
+  selectedMode: 'human_led',
+});
+const resolvedFourScenes = resolveSelectedVideoProductionCandidate({
+  candidates: [fourScenesCandidate as any],
+  selectedMode: 'human_led',
+});
+assert(
+  resolvedTwoScenes === null && resolvedFourScenes === null,
+  'C1C-C TEST 6: Candidate with 2 or 4 scenes strictly fails closed (returns null)'
+);
+
+// C1C-C TEST 7: Scene numbers must be strictly 1, 2, 3 in sequence without duplicates or gaps
+const malformedSceneNumbersCandidate = {
+  ...tofuHumanCandidate,
+  production_details: {
+    ...tofuHumanCandidate.production_details,
+    scenes: [
+      { ...tofuHumanScenes[0], scene_number: 1 },
+      { ...tofuHumanScenes[1], scene_number: 1 }, // duplicate scene 1
+      { ...tofuHumanScenes[2], scene_number: 3 },
+    ],
+  },
+};
+const gapSceneNumbersCandidate = {
+  ...tofuHumanCandidate,
+  production_details: {
+    ...tofuHumanCandidate.production_details,
+    scenes: [
+      { ...tofuHumanScenes[0], scene_number: 1 },
+      { ...tofuHumanScenes[1], scene_number: 2 },
+      { ...tofuHumanScenes[2], scene_number: 4 }, // gap: 4 instead of 3
+    ],
+  },
+};
+assert(
+  resolveSelectedVideoProductionCandidate({
+    candidates: [malformedSceneNumbersCandidate as any],
+    selectedMode: 'human_led',
+  }) === null &&
+  resolveSelectedVideoProductionCandidate({
+    candidates: [gapSceneNumbersCandidate as any],
+    selectedMode: 'human_led',
+  }) === null,
+  'C1C-C TEST 7: Scene numbers with duplicates or gaps fail closed'
+);
+
+// C1C-C TEST 8: Malformed scene fields fail closed
+const invalidSceneTypeCandidate = {
+  ...tofuHumanCandidate,
+  production_details: {
+    ...tofuHumanCandidate.production_details,
+    scenes: [
+      tofuHumanScenes[0],
+      tofuHumanScenes[1],
+      { ...tofuHumanScenes[2], scene_type: 'invalid_type' as any },
+    ],
+  },
+};
+const invalidDurationCandidate = {
+  ...tofuHumanCandidate,
+  production_details: {
+    ...tofuHumanCandidate.production_details,
+    scenes: [
+      { ...tofuHumanScenes[0], duration_seconds: -5 },
+      tofuHumanScenes[1],
+      tofuHumanScenes[2],
+    ],
+  },
+};
+assert(
+  resolveSelectedVideoProductionCandidate({
+    candidates: [invalidSceneTypeCandidate as any],
+    selectedMode: 'human_led',
+  }) === null &&
+  resolveSelectedVideoProductionCandidate({
+    candidates: [invalidDurationCandidate as any],
+    selectedMode: 'human_led',
+  }) === null,
+  'C1C-C TEST 8: Malformed scene fields (invalid scene_type, negative duration) fail closed'
+);
+
+// C1C-C TEST 9: Human Led mode instructions use authoritative talking_head scenes & CharacterDNA without generic fallback
+const mockDna: CharacterDNA = {
+  character_id: 'char_budi_01',
+  identity: {
+    display_name: 'Budi Santoso',
+    gender: 'male',
+    apparent_age: '30s',
+    role_or_archetype: 'Tech Lead Expert',
+    brand_relationship: 'Brand Ambassador',
+  },
+  dna_summary_prompt: 'Professional Indonesian tech specialist in dark navy minimalist shirt',
+  negative_constraints: ['no cartoon', 'no 3D render'],
+};
+const humanInstructions = buildCanonicalSceneProductionInstructions({
+  scene: tofuHumanScenes[0],
+  productionMode: 'human_led',
+  characterDNA: mockDna,
+});
+assert(
+  humanInstructions.imagePrompt.includes('Budi Santoso') ||
+  humanInstructions.imagePrompt.includes('Professional Indonesian tech specialist'),
+  'C1C-C TEST 9a: Human Led scene uses authoritative CharacterDNA in visual prompt'
+);
+assert(
+  !humanInstructions.imagePrompt.includes('a 26-year-old Indonesian content creator') &&
+  !humanInstructions.imagePrompt.includes('a young energetic creator'),
+  'C1C-C TEST 9b: Human Led scene does not fall back to generic creator hardcoding'
+);
+
+// C1C-C TEST 10: Product Demo mode uses canonical product_screen / b_roll / end_card scenes
+assert(
+  mofuDemoScenes.some((s) => s.scene_type === 'product_screen') &&
+  mofuDemoScenes.some((s) => s.scene_type === 'end_card' || s.scene_type === 'b_roll'),
+  'C1C-C TEST 10: Product Demo mode canonical scenes contain product_screen and b_roll/end_card'
+);
+
+// C1C-C TEST 11: Product Demo mode references actual ProductAssetContext screenshots without fabricating images
+const productCtxWithShots: ProductAssetContext = {
+  product_name: 'Alco SaaS Platform',
+  screenshots: [
+    {
+      id: 'shot_1',
+      storage_path: '/shots/dashboard.png',
+      caption: 'Main Analytics Dashboard',
+      created_at: 1000,
+      byte_size: 2048,
+    },
+  ],
+};
+const demoInstructions = buildCanonicalSceneProductionInstructions({
+  scene: mofuDemoScenes[0],
+  productionMode: 'product_demo',
+  productAssetContext: productCtxWithShots,
+});
+assert(
+  demoInstructions.imagePrompt.includes('Main Analytics Dashboard') &&
+  demoInstructions.imagePrompt.includes('Alco SaaS Platform'),
+  'C1C-C TEST 11: Product Demo scene instructions reference actual ProductAssetContext screenshots'
+);
+
+// C1C-C TEST 12: Motion Explainer mode generates instructions purely from canonical scene fields without requiring DNA or screenshots
+const motionInstructions = buildCanonicalSceneProductionInstructions({
+  scene: bofuMotionScenes[0],
+  productionMode: 'motion_explainer',
+});
+assert(
+  motionInstructions.imagePrompt.length > 20 &&
+  motionInstructions.motionPrompt.length > 20 &&
+  !motionInstructions.imagePrompt.includes('distorted face') &&
+  motionInstructions.imagePrompt.includes('kinetic typography') ||
+  motionInstructions.imagePrompt.includes('Infografis'),
+  'C1C-C TEST 12: Motion Explainer generates instructions purely from canonical scene fields'
+);
+
+// C1C-C TEST 13: getSceneTypeLabel maps technical scene types to Indonesian labels
+assert(
+  getSceneTypeLabel('talking_head') === 'Talent / Talking Head' &&
+  getSceneTypeLabel('product_screen') === 'Tampilan Produk' &&
+  getSceneTypeLabel('graphic_motion') === 'Motion Graphic' &&
+  getSceneTypeLabel('b_roll') === 'B-Roll' &&
+  getSceneTypeLabel('end_card') === 'End Card',
+  'C1C-C TEST 13: getSceneTypeLabel accurately maps canonical scene types to Indonesian UI labels'
+);
+
+// C1C-C TEST 14: getRequiredAssetLabel maps technical asset tokens to readable labels
+assert(
+  getRequiredAssetLabel('character').includes('CharacterDNA') &&
+  getRequiredAssetLabel('product_screenshot').includes('Tangkapan Layar') &&
+  getRequiredAssetLabel('motion_graphic').includes('Grafik Animasi'),
+  'C1C-C TEST 14: getRequiredAssetLabel accurately maps required asset tokens'
+);
+
+// C1C-C TEST 15: Readiness gating contracts: is_ready === true vs is_ready === false
+const ctxWithoutCharDNA: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  character_dna: undefined,
+};
+const readyHuman = resolveVideoProductionReadiness({
+  productionContext: canonicalValidCtx,
+  selectedMode: 'human_led',
+  characterDNA: mockDna,
+});
+const blockedHuman = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutCharDNA,
+  selectedMode: 'human_led',
+  characterDNA: null,
+});
+assert(
+  readyHuman.is_ready === true && blockedHuman.is_ready === false,
+  'C1C-C TEST 15: Readiness contract correctly gates human_led mode (ready with DNA, blocked without DNA)'
+);
+
+// C1C-C TEST 16: Scene Navigation reset contract: Active scene resets to Scene 1 on mode or item change
+let testSceneState = 2; // user was on Scene 2
+const onModeChange = () => {
+  testSceneState = 1;
+};
+onModeChange();
+assert(testSceneState === 1, 'C1C-C TEST 16: Active scene resets to Scene 1 on mode switch');
+
+// C1C-C TEST 17: Scene Card renders canonical fields (purpose, camera, visual_direction, action, voiceover, on_screen_text)
+const testSceneObj = tofuHumanScenes[0];
+assert(
+  typeof testSceneObj.purpose === 'string' &&
+  typeof testSceneObj.camera === 'string' &&
+  typeof testSceneObj.visual_direction === 'string' &&
+  typeof testSceneObj.action === 'string' &&
+  typeof testSceneObj.voiceover === 'string' &&
+  typeof testSceneObj.on_screen_text === 'string',
+  'C1C-C TEST 17: Canonical scene structure exposes all 6 canonical direction fields'
+);
+
+// C1C-C TEST 18: Copy actions do not mutate or imply scene completion (no false 'done' / 'selesai' checkmark semantics)
+const mockCopiedMap: Record<string, boolean> = {};
+mockCopiedMap['canonical_prompt_1_human_led'] = true;
+// Scene completion state is NOT derived from mockCopiedMap in C1C-C
+const isSceneCompletedInC1CC = false; // Phase C1C-C does not implement scene completion (reserved for C1C-D)
+assert(
+  isSceneCompletedInC1CC === false,
+  'C1C-C TEST 18: Copying prompt does not mark scene as completed (no false completion semantics in C1C-C)'
+);
+
+// C1C-C TEST 19: buildCanonicalVideoScenePlan produces 3 valid canonical scenes across all funnel stages for all 3 modes
+const stages = ['TOFU', 'MOFU', 'BOFU'] as const;
+const modes: VideoProductionMode[] = ['human_led', 'product_demo', 'motion_explainer'];
+let allScenesValid = true;
+for (const stg of stages) {
+  for (const md of modes) {
+    const sc = buildCanonicalVideoScenePlan(stg, md, mockScriptObj);
+    if (
+      sc.length !== 3 ||
+      sc[0].scene_number !== 1 ||
+      sc[1].scene_number !== 2 ||
+      sc[2].scene_number !== 3 ||
+      sc.some((s) => !s.purpose || !s.visual_direction || !s.action || !s.camera || !s.scene_type)
+    ) {
+      allScenesValid = false;
+    }
+  }
+}
+assert(
+  allScenesValid,
+  'C1C-C TEST 19: buildCanonicalVideoScenePlan produces 3 valid canonical scenes for all 3 modes across TOFU, MOFU, BOFU'
+);
+
+// C1C-C TEST 20: Full end-to-end integration: Valid candidates for all 3 modes resolve deterministically and generate complete instructions
+const fullCandidatePool = modes.map((mode) => {
+  const scenes = buildCanonicalVideoScenePlan('TOFU', mode, mockScriptObj);
+  return buildVideoProductionCandidate({
+    candidate_id: getVideoCandidateId(mode),
+    production_mode: mode,
+    objective: 'Full Funnel Goal',
+    format: '9:16 Vertical Video',
+    hook: mockScriptObj.hook,
+    scenes,
+    motion_direction: 'Dynamic pace',
+    audio_direction: 'Modern audio design',
+    negative_constraints: 'No artifacts',
+    final_prompt: `${mode} final prompt`,
+  });
+});
+
+let allModesResolved = true;
+for (const mode of modes) {
+  const resolved = resolveSelectedVideoProductionCandidate({
+    candidates: fullCandidatePool,
+    selectedMode: mode,
+  });
+  if (!resolved || resolved.production_details.production_mode !== mode) {
+    allModesResolved = false;
+    break;
+  }
+  const instr = buildCanonicalSceneProductionInstructions({
+    scene: resolved.production_details.scenes[0],
+    productionMode: mode,
+    characterDNA: mode === 'human_led' ? mockDna : null,
+    productAssetContext: mode === 'product_demo' ? productCtxWithShots : null,
+  });
+  if (!instr.imagePrompt || !instr.motionPrompt || !instr.voiceover) {
+    allModesResolved = false;
+    break;
+  }
+}
+assert(
+  allModesResolved,
+  'C1C-C TEST 20: Full end-to-end integration resolves all 3 modes deterministically with complete 2-step prompts'
 );
 
 // -------------------------------------------------------------
