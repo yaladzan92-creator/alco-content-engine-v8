@@ -6820,6 +6820,22 @@ assert(
   'C1C-D STATIC GUARD 2: No Video ProductionPackage creation or production_status = completed in VideoPanel'
 );
 
+// GUARD 3: Static checks on lib/video-scene-completion.ts for legacy fallback patterns and typing
+const videoSceneCompletionSrc = fs.readFileSync(path.join(process.cwd(), 'lib/video-scene-completion.ts'), 'utf-8');
+assert(
+  !videoSceneCompletionSrc.includes('visual_cue') &&
+  !videoSceneCompletionSrc.includes('narration') &&
+  !videoSceneCompletionSrc.includes('scene.text') &&
+  !videoSceneCompletionSrc.includes('scenes.map((s: any)') &&
+  !videoSceneCompletionSrc.includes('candidate.production_mode'),
+  'C1C-D STATIC GUARD 3: lib/video-scene-completion.ts must NOT contain legacy fallback fields or any typing'
+);
+
+assert(
+  videoSceneCompletionSrc.includes('candidate: VideoProductionCandidate | null | undefined'),
+  'C1C-D STATIC GUARD 4: buildVideoScenePlanSignature input must be strictly VideoProductionCandidate | null | undefined'
+);
+
 // -------------------------------------------------------------
 // RESULTS SUMMARY
 // -------------------------------------------------------------

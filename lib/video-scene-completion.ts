@@ -47,49 +47,56 @@ export function getVideoSceneCompletionStorageKey(
  * Does NOT contain timestamps, random values, or copiedStates.
  */
 export function buildVideoScenePlanSignature(
-  candidate:
-    | VideoProductionCandidate
-    | {
-        production_mode?: VideoProductionMode;
-        production_details?: {
-          production_mode?: VideoProductionMode;
-          scenes?: VideoSceneProductionPlan[];
-        };
-      }
-    | null
-    | undefined
+  candidate: VideoProductionCandidate | null | undefined
 ): string {
-  if (!candidate) return '';
-  const mode =
-    candidate.production_details?.production_mode ||
-    candidate.production_mode ||
-    '';
-  const scenes = candidate.production_details?.scenes;
+  if (!candidate || typeof candidate !== 'object') return '';
+  if (candidate.candidate_type !== 'video') return '';
+
+  const details = candidate.production_details;
+  if (!details || typeof details !== 'object') return '';
+
+  const mode = details.production_mode;
+  const validModes: VideoProductionMode[] = ['human_led', 'product_demo', 'motion_explainer'];
+  if (!mode || !validModes.includes(mode)) return '';
+
+  const scenes = details.scenes;
   if (!Array.isArray(scenes) || scenes.length !== 3) return '';
 
-  const validModes: VideoProductionMode[] = ['human_led', 'product_demo', 'motion_explainer'];
-  if (!validModes.includes(mode as VideoProductionMode)) return '';
+  const normalizedSceneStrings: string[] = [];
 
-  const normalizedSceneStrings = scenes.map((s: any) => {
-    const requiredAssets = Array.isArray(s.required_assets)
-      ? [...s.required_assets].sort().join(',')
-      : '';
-    const visual = s.visual_direction || s.visual_cue || '';
-    const vo = s.voiceover || s.narration || '';
-    const txt = s.on_screen_text || s.text || '';
-    return [
-      `num:${s.scene_number}`,
-      `dur:${s.duration_seconds}`,
-      `type:${s.scene_type || ''}`,
-      `purpose:${s.purpose || ''}`,
-      `visual:${visual}`,
-      `act:${s.action || ''}`,
-      `cam:${s.camera || ''}`,
-      `vo:${vo}`,
-      `text:${txt}`,
-      `assets:${requiredAssets}`,
-    ].join('|');
-  });
+  for (let i = 0; i < scenes.length; i++) {
+    const scene: VideoSceneProductionPlan = scenes[i];
+    if (!scene || typeof scene !== 'object') return '';
+
+    const expectedNum = (i + 1) as 1 | 2 | 3;
+    if (scene.scene_number !== expectedNum) return '';
+    if (typeof scene.duration_seconds !== 'number' || scene.duration_seconds <= 0) return '';
+    if (typeof scene.purpose !== 'string') return '';
+    if (typeof scene.visual_direction !== 'string') return '';
+    if (typeof scene.action !== 'string') return '';
+    if (typeof scene.camera !== 'string') return '';
+    if (typeof scene.voiceover !== 'string') return '';
+    if (typeof scene.on_screen_text !== 'string') return '';
+    if (typeof scene.scene_type !== 'string') return '';
+    if (!Array.isArray(scene.required_assets)) return '';
+
+    const requiredAssets = [...scene.required_assets].sort().join(',');
+
+    normalizedSceneStrings.push(
+      [
+        `num:${scene.scene_number}`,
+        `dur:${scene.duration_seconds}`,
+        `type:${scene.scene_type}`,
+        `purpose:${scene.purpose}`,
+        `visual:${scene.visual_direction}`,
+        `act:${scene.action}`,
+        `cam:${scene.camera}`,
+        `vo:${scene.voiceover}`,
+        `text:${scene.on_screen_text}`,
+        `assets:${requiredAssets}`,
+      ].join('|')
+    );
+  }
 
   return `sig_${mode}_${normalizedSceneStrings.join('##')}`;
 }
@@ -135,6 +142,13 @@ export function validateVideoSceneCompletionState(
   }
 
   const typed = state as Partial<VideoSceneCompletionState>;
+
+  if (typeof typed.updated_at !== 'string' || typed.updated_at.trim().length === 0) {
+    return {
+      isValid: false,
+      error: 'updated_at must be a non-empty string',
+    };
+  }
 
   if (typed.project_id !== expected.project_id) {
     return {
@@ -209,18 +223,18 @@ export function validateVideoSceneCompletionState(
       };
     }
 
-    if (scene.clip_created) {
-      if (typeof scene.marked_at !== 'string' || !scene.marked_at) {
+    if (scene.clip_created === true) {
+      if (typeof scene.marked_at !== 'string' || scene.marked_at.trim().length === 0) {
         return {
           isValid: false,
-          error: `Scene ${scene.scene_number} is marked created but marked_at is missing`,
+          error: `Scene ${scene.scene_number} is marked created but marked_at is not a non-empty string`,
         };
       }
     } else {
-      if (scene.marked_at !== null && scene.marked_at !== undefined && scene.marked_at !== '') {
+      if (scene.marked_at !== null) {
         return {
           isValid: false,
-          error: `Scene ${scene.scene_number} is not created but marked_at is set`,
+          error: `Scene ${scene.scene_number} clip_created is false so marked_at MUST be strictly null`,
         };
       }
     }
