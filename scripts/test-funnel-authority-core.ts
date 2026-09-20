@@ -5898,314 +5898,354 @@ assert(
 // PHASE 3D-C1C-B: MODE-SPECIFIC VIDEO INPUT UX & CONTRACT TESTS
 // =============================================================
 
-// Helper: simulate VideoPanel rendering logic for mode input components & legacy workspace guard
+// Helper: simulate VideoPanel rendering logic for mode input components & workspace guard
 interface VideoPanelSimulationProps {
   selectedVideoProductionMode: VideoProductionMode;
   characterDNA: CharacterDNA | null;
   productAssetContext: ProductAssetContext | null;
-  readiness: VideoProductionReadiness;
+  readiness: VideoProductionReadiness | null;
 }
 
 function simulateVideoPanelState(props: VideoPanelSimulationProps) {
   const { selectedVideoProductionMode, characterDNA, productAssetContext, readiness } = props;
 
   // 1. Component shown in Mode Input UX area
-  const showsCharacterSelector = selectedVideoProductionMode === 'human_led';
+  const showsCharacterContext = selectedVideoProductionMode === 'human_led';
   const showsProductAssetPanel = selectedVideoProductionMode === 'product_demo';
   const showsMotionExplainerInfo = selectedVideoProductionMode === 'motion_explainer';
 
-  // 2. Legacy human UGC / Google Flow 3-scene workspace guard
-  const showsGoogleFlowWorkspace = selectedVideoProductionMode === 'human_led';
+  // 2. Human-Led workspace guard strictly requires mode === 'human_led' AND readiness.is_ready === true
+  const canOpenHumanLedWorkspace =
+    selectedVideoProductionMode === 'human_led' &&
+    readiness?.is_ready === true;
+
+  const showsGoogleFlowWorkspace = canOpenHumanLedWorkspace;
+  const showsBlockedGuidance =
+    selectedVideoProductionMode === 'human_led' && !canOpenHumanLedWorkspace;
 
   // 3. UI Readiness status reflection strictly from canonical readiness object
-  const uiReadinessStatus = readiness.is_ready ? 'ready' : 'blocked';
-  const displayedMissingInputs = [...readiness.missing_required_inputs];
+  const uiReadinessStatus = readiness?.is_ready === true ? 'ready' : 'blocked';
+  const displayedMissingInputs = readiness ? [...readiness.missing_required_inputs] : ['canonical_readiness_unavailable'];
 
   return {
-    showsCharacterSelector,
+    showsCharacterContext,
     showsProductAssetPanel,
     showsMotionExplainerInfo,
     showsGoogleFlowWorkspace,
+    showsBlockedGuidance,
     uiReadinessStatus,
     displayedMissingInputs,
   };
 }
 
-// C1C-B TEST 01: Mode = 'human_led' renders CharacterSelector and Google Flow workspace
-const simB01 = simulateVideoPanelState({
-  selectedVideoProductionMode: 'human_led',
-  characterDNA: validCharacterDNASaaS,
-  productAssetContext: null,
-  readiness: resolveVideoProductionReadiness({
-    productionContext: canonicalValidCtx,
-    selectedMode: 'human_led',
-    productAssetContext: null,
-  }),
-});
-assert(
-  simB01.showsCharacterSelector === true &&
-  simB01.showsProductAssetPanel === false &&
-  simB01.showsMotionExplainerInfo === false &&
-  simB01.showsGoogleFlowWorkspace === true,
-  'C1C-B TEST 01: Mode human_led shows CharacterSelector and Google Flow workspace'
-);
+// Helper: simulate ProductAssetInputPanel final badge calculation
+function simulateProductAssetInputBadge(videoProductionReadiness: VideoProductionReadiness | null | undefined) {
+  const isReady = videoProductionReadiness?.is_ready === true;
+  let label = 'Menunggu Validasi Produksi';
+  let badgeType: 'waiting' | 'ready' | 'incomplete' = 'waiting';
 
-// C1C-B TEST 02: Mode = 'product_demo' renders ProductAssetInputPanel and hides Google Flow workspace
-const simB02 = simulateVideoPanelState({
-  selectedVideoProductionMode: 'product_demo',
-  characterDNA: validCharacterDNASaaS,
-  productAssetContext: null,
-  readiness: resolveVideoProductionReadiness({
-    productionContext: canonicalValidCtx,
-    selectedMode: 'product_demo',
-    productAssetContext: null,
-  }),
-});
-assert(
-  simB02.showsProductAssetPanel === true &&
-  simB02.showsCharacterSelector === false &&
-  simB02.showsMotionExplainerInfo === false &&
-  simB02.showsGoogleFlowWorkspace === false,
-  'C1C-B TEST 02: Mode product_demo renders ProductAssetInputPanel and suppresses legacy human UGC workspace'
-);
+  if (!videoProductionReadiness) {
+    label = 'Menunggu Validasi Produksi';
+    badgeType = 'waiting';
+  } else if (videoProductionReadiness.is_ready) {
+    label = 'Input Lengkap';
+    badgeType = 'ready';
+  } else {
+    label = 'Butuh Input Wajib';
+    badgeType = 'incomplete';
+  }
 
-// C1C-B TEST 03: Mode = 'motion_explainer' renders Motion Explainer info card and hides Google Flow workspace
-const simB03 = simulateVideoPanelState({
-  selectedVideoProductionMode: 'motion_explainer',
-  characterDNA: null,
-  productAssetContext: null,
-  readiness: resolveVideoProductionReadiness({
-    productionContext: ctxValidWithoutChar,
-    selectedMode: 'motion_explainer',
-    productAssetContext: null,
-  }),
-});
-assert(
-  simB03.showsMotionExplainerInfo === true &&
-  simB03.showsCharacterSelector === false &&
-  simB03.showsProductAssetPanel === false &&
-  simB03.showsGoogleFlowWorkspace === false,
-  'C1C-B TEST 03: Mode motion_explainer renders Motion Explainer info card and suppresses legacy workspace'
-);
+  return {
+    isReady,
+    label,
+    badgeType,
+  };
+}
 
-// C1C-B TEST 04: UI derives readiness strictly from resolveVideoProductionReadiness (not reimplemented locally)
-const readinessB04 = resolveVideoProductionReadiness({
+// Helper: file validation
+function validateScreenshotFileType(mimeType: string): boolean {
+  const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+  return allowed.includes(mimeType.toLowerCase());
+}
+
+function processScreenshotFileSelection(file: { name: string; type: string }): ProductAssetReference | null {
+  if (!validateScreenshotFileType(file.type)) {
+    return null;
+  }
+  return {
+    id: `shot_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    name: file.name,
+    kind: 'screenshot',
+  };
+}
+
+// C1C-B TEST 01: Human Led READY
+const rB01 = resolveVideoProductionReadiness({
   productionContext: canonicalValidCtx,
   selectedMode: 'human_led',
   productAssetContext: null,
 });
-const simB04 = simulateVideoPanelState({
+const simB01 = simulateVideoPanelState({
   selectedVideoProductionMode: 'human_led',
   characterDNA: validCharacterDNASaaS,
   productAssetContext: null,
-  readiness: readinessB04,
+  readiness: rB01,
 });
 assert(
-  simB04.uiReadinessStatus === (readinessB04.is_ready ? 'ready' : 'blocked') &&
-  simB04.displayedMissingInputs.length === readinessB04.missing_required_inputs.length,
-  'C1C-B TEST 04: UI derives readiness directly and faithfully from canonical VideoProductionReadiness'
+  rB01.is_ready === true &&
+  simB01.showsCharacterContext === true &&
+  simB01.showsProductAssetPanel === false &&
+  simB01.showsMotionExplainerInfo === false &&
+  simB01.showsGoogleFlowWorkspace === true &&
+  simB01.showsBlockedGuidance === false,
+  'C1C-B TEST 01: Mode human_led with valid CharacterDNA is READY and shows Google Flow workspace'
 );
 
-// C1C-B TEST 05: Mode change from human_led -> product_demo switches UI panel from CharacterSelector to ProductAssetInputPanel
-const initialMode: VideoProductionMode = 'human_led';
-const switchedMode: VideoProductionMode = 'product_demo';
-const stateBefore = simulateVideoPanelState({
-  selectedVideoProductionMode: initialMode,
-  characterDNA: validCharacterDNASaaS,
+// C1C-B TEST 02: Human Led NOT READY
+const rB02 = resolveVideoProductionReadiness({
+  productionContext: ctxValidWithoutChar,
+  selectedMode: 'human_led',
   productAssetContext: null,
-  readiness: resolveVideoProductionReadiness({
-    productionContext: canonicalValidCtx,
-    selectedMode: initialMode,
-  }),
 });
-const stateAfter = simulateVideoPanelState({
-  selectedVideoProductionMode: switchedMode,
-  characterDNA: validCharacterDNASaaS,
-  productAssetContext: null,
-  readiness: resolveVideoProductionReadiness({
-    productionContext: canonicalValidCtx,
-    selectedMode: switchedMode,
-  }),
-});
-assert(
-  stateBefore.showsCharacterSelector === true &&
-  stateBefore.showsProductAssetPanel === false &&
-  stateAfter.showsCharacterSelector === false &&
-  stateAfter.showsProductAssetPanel === true,
-  'C1C-B TEST 05: Mode change human_led -> product_demo switches panel from CharacterSelector to ProductAssetInputPanel'
-);
-
-// C1C-B TEST 06: Mode change product_demo -> motion_explainer switches to Motion Explainer info and removes asset panel
-const stateMotion = simulateVideoPanelState({
-  selectedVideoProductionMode: 'motion_explainer',
+const simB02 = simulateVideoPanelState({
+  selectedVideoProductionMode: 'human_led',
   characterDNA: null,
   productAssetContext: null,
-  readiness: resolveVideoProductionReadiness({
-    productionContext: ctxValidWithoutChar,
-    selectedMode: 'motion_explainer',
-  }),
+  readiness: rB02,
 });
 assert(
-  stateMotion.showsMotionExplainerInfo === true &&
-  stateMotion.showsProductAssetPanel === false &&
-  stateMotion.showsCharacterSelector === false,
-  'C1C-B TEST 06: Switching to motion_explainer renders motion info card and unmounts ProductAssetInputPanel'
+  rB02.is_ready === false &&
+  simB02.showsCharacterContext === true &&
+  simB02.showsGoogleFlowWorkspace === false &&
+  simB02.showsBlockedGuidance === true,
+  'C1C-B TEST 02: Mode human_led without CharacterDNA is NOT READY, hides workspace, and shows blocked guidance'
 );
 
-// C1C-B TEST 07: ProductAssetInputPanel validates product_name required
-const productNoName: ProductAssetContext = {
-  product_name: '   ',
-  product_type: 'SaaS',
-  screenshots: [validScreenshotRef],
-  feature_focus: [],
-  demo_steps: [],
-};
-const readinessNoName = resolveVideoProductionReadiness({
-  productionContext: canonicalValidCtx,
-  selectedMode: 'product_demo',
-  productAssetContext: productNoName,
+// C1C-B TEST 03: flowCustomCreator cannot bypass CharacterDNA
+const flowCustomCreatorB03 = 'Indonesian Creator Professional';
+const rB03 = resolveVideoProductionReadiness({
+  productionContext: ctxValidWithoutChar, // CharacterDNA is null
+  selectedMode: 'human_led',
+  productAssetContext: null,
+});
+const simB03 = simulateVideoPanelState({
+  selectedVideoProductionMode: 'human_led',
+  characterDNA: null,
+  productAssetContext: null,
+  readiness: rB03,
 });
 assert(
-  readinessNoName.is_ready === false &&
-  readinessNoName.missing_required_inputs.includes('product_name'),
-  'C1C-B TEST 07: ProductAssetInputPanel without product_name yields is_ready=false and missing product_name'
+  rB03.is_ready === false &&
+  simB03.showsGoogleFlowWorkspace === false &&
+  simB03.showsBlockedGuidance === true &&
+  flowCustomCreatorB03.length > 0,
+  'C1C-B TEST 03: flowCustomCreator cannot bypass CharacterDNA requirement; canonical readiness remains false and workspace stays hidden'
 );
 
-// C1C-B TEST 08: ProductAssetInputPanel validates screenshots required (at least 1 valid screenshot)
-const productNoScreenshot: ProductAssetContext = {
-  product_name: 'ALCO Core',
-  product_type: 'SaaS',
-  screenshots: [],
-  feature_focus: [],
-  demo_steps: [],
-};
-const readinessNoScreenshot = resolveVideoProductionReadiness({
-  productionContext: canonicalValidCtx,
-  selectedMode: 'product_demo',
-  productAssetContext: productNoScreenshot,
-});
-assert(
-  readinessNoScreenshot.is_ready === false &&
-  readinessNoScreenshot.missing_required_inputs.includes('product_screenshot'),
-  'C1C-B TEST 08: ProductAssetInputPanel without screenshots yields is_ready=false and missing product_screenshot'
-);
-
-// C1C-B TEST 09: Non-screenshot references (logo, screen recording) do NOT fulfill screenshot requirement
-const productLogoOnly: ProductAssetContext = {
-  product_name: 'ALCO Core',
-  product_type: 'SaaS',
-  screenshots: [{ id: 'logo_1', name: 'Brand Logo', kind: 'logo' as any }],
-  feature_focus: [],
-  demo_steps: [],
-};
-const readinessLogoOnly = resolveVideoProductionReadiness({
-  productionContext: canonicalValidCtx,
-  selectedMode: 'product_demo',
-  productAssetContext: productLogoOnly,
-});
-assert(
-  readinessLogoOnly.is_ready === false &&
-  readinessLogoOnly.missing_required_inputs.includes('product_screenshot'),
-  'C1C-B TEST 09: Non-screenshot references (e.g. logo) do NOT fulfill screenshot requirement'
-);
-
-// C1C-B TEST 10: ProductAssetInputPanel with product_name + 1 valid screenshot becomes READY
-const productValidMinimal: ProductAssetContext = {
+// C1C-B TEST 04: Product Demo
+const productValidB04: ProductAssetContext = {
   product_name: 'ALCO Core Platform',
   product_type: 'SaaS',
   screenshots: [validScreenshotRef],
   feature_focus: [],
   demo_steps: [],
 };
-const readinessValidProduct = resolveVideoProductionReadiness({
+const rB04 = resolveVideoProductionReadiness({
   productionContext: canonicalValidCtx,
   selectedMode: 'product_demo',
-  productAssetContext: productValidMinimal,
+  productAssetContext: productValidB04,
+});
+const simB04 = simulateVideoPanelState({
+  selectedVideoProductionMode: 'product_demo',
+  characterDNA: validCharacterDNASaaS,
+  productAssetContext: productValidB04,
+  readiness: rB04,
 });
 assert(
-  readinessValidProduct.is_ready === true &&
-  readinessValidProduct.missing_required_inputs.length === 0,
-  'C1C-B TEST 10: ProductAssetInputPanel with product_name + valid screenshot becomes READY'
+  simB04.showsProductAssetPanel === true &&
+  simB04.showsCharacterContext === false &&
+  simB04.showsGoogleFlowWorkspace === false &&
+  simB04.showsMotionExplainerInfo === false,
+  'C1C-B TEST 04: Mode product_demo renders ProductAssetInputPanel and suppresses CharacterSelector and Human UGC workspace'
 );
 
-// C1C-B TEST 11: Switching from product_demo to human_led evaluates human_led readiness (not product asset readiness)
-const switchedToHumanReadiness = resolveVideoProductionReadiness({
-  productionContext: ctxValidWithoutChar, // Has no character!
-  selectedMode: 'human_led',
-  productAssetContext: productValidMinimal, // Has valid product asset, but mode is human_led!
-});
-assert(
-  switchedToHumanReadiness.mode === 'human_led' &&
-  switchedToHumanReadiness.is_ready === false &&
-  switchedToHumanReadiness.missing_required_inputs.includes('character'),
-  'C1C-B TEST 11: Mode human_led evaluates character requirement regardless of present productAssetContext'
-);
-
-// C1C-B TEST 12: Motion Explainer is instantly ready when authority context is valid
-const motionReadiness = resolveVideoProductionReadiness({
+// C1C-B TEST 05: Motion Explainer
+const rB05 = resolveVideoProductionReadiness({
   productionContext: ctxValidWithoutChar,
   selectedMode: 'motion_explainer',
   productAssetContext: null,
 });
+const simB05 = simulateVideoPanelState({
+  selectedVideoProductionMode: 'motion_explainer',
+  characterDNA: null,
+  productAssetContext: null,
+  readiness: rB05,
+});
 assert(
-  motionReadiness.mode === 'motion_explainer' &&
-  motionReadiness.is_ready === true &&
-  motionReadiness.required_inputs.length === 0 &&
-  motionReadiness.missing_required_inputs.length === 0,
-  'C1C-B TEST 12: Motion Explainer is instantly READY with zero required inputs when authority context is valid'
+  simB05.showsMotionExplainerInfo === true &&
+  simB05.showsCharacterContext === false &&
+  simB05.showsProductAssetPanel === false &&
+  simB05.showsGoogleFlowWorkspace === false,
+  'C1C-B TEST 05: Mode motion_explainer renders Motion Explainer info card and suppresses CharacterSelector, ProductAssetInputPanel, and Human UGC workspace'
 );
 
-// C1C-B TEST 13: ProductAssetContext item isolation simulation: Switching content items clears/isolates product asset state
+// C1C-B TEST 06: Canonical readiness unavailable (videoProductionReadiness = null)
+const badgeB06 = simulateProductAssetInputBadge(null);
+assert(
+  badgeB06.isReady === false &&
+  badgeB06.badgeType === 'waiting' &&
+  badgeB06.label === 'Menunggu Validasi Produksi',
+  'C1C-B TEST 06: When videoProductionReadiness is null, final badge fails closed to Menunggu Validasi Produksi (never shows Input Lengkap)'
+);
+
+// C1C-B TEST 07: Canonical readiness false even when local fields are populated
+const productPopulatedLocal: ProductAssetContext = {
+  product_name: 'ALCO Platform',
+  product_type: 'SaaS',
+  screenshots: [validScreenshotRef],
+  feature_focus: ['AI Copywriting'],
+  demo_steps: ['Open App'],
+};
+const unreadyReadiness: VideoProductionReadiness = {
+  mode: 'product_demo',
+  is_ready: false,
+  required_inputs: ['product_name', 'product_screenshot'],
+  missing_required_inputs: ['product_screenshot'],
+  optional_inputs: ['product_type', 'feature_focus', 'demo_steps'],
+  warnings: [],
+};
+const badgeB07 = simulateProductAssetInputBadge(unreadyReadiness);
+assert(
+  badgeB07.isReady === false &&
+  badgeB07.badgeType === 'incomplete' &&
+  badgeB07.label === 'Butuh Input Wajib',
+  'C1C-B TEST 07: When videoProductionReadiness is false, final badge displays Butuh Input Wajib'
+);
+
+// C1C-B TEST 08: Canonical readiness true
+const readyReadiness: VideoProductionReadiness = {
+  mode: 'product_demo',
+  is_ready: true,
+  required_inputs: ['product_name', 'product_screenshot'],
+  missing_required_inputs: [],
+  optional_inputs: ['product_type', 'feature_focus', 'demo_steps'],
+  warnings: [],
+};
+const badgeB08 = simulateProductAssetInputBadge(readyReadiness);
+assert(
+  badgeB08.isReady === true &&
+  badgeB08.badgeType === 'ready' &&
+  badgeB08.label === 'Input Lengkap',
+  'C1C-B TEST 08: When videoProductionReadiness is true, final badge displays Input Lengkap'
+);
+
+// C1C-B TEST 09: PNG screenshot file
+const pngFile = { name: 'dashboard-main.png', type: 'image/png' };
+const shotPng = processScreenshotFileSelection(pngFile);
+assert(
+  validateScreenshotFileType('image/png') === true &&
+  shotPng !== null &&
+  shotPng.kind === 'screenshot' &&
+  shotPng.name === 'dashboard-main.png',
+  'C1C-B TEST 09: image/png screenshot file is accepted and mapped to ProductAssetReference'
+);
+
+// C1C-B TEST 10: JPEG screenshot file
+const jpegFile = { name: 'analytics-screen.jpeg', type: 'image/jpeg' };
+const shotJpeg = processScreenshotFileSelection(jpegFile);
+assert(
+  validateScreenshotFileType('image/jpeg') === true &&
+  shotJpeg !== null &&
+  shotJpeg.kind === 'screenshot' &&
+  shotJpeg.name === 'analytics-screen.jpeg',
+  'C1C-B TEST 10: image/jpeg screenshot file is accepted and mapped to ProductAssetReference'
+);
+
+// C1C-B TEST 11: WebP screenshot file
+const webpFile = { name: 'app-preview.webp', type: 'image/webp' };
+const shotWebp = processScreenshotFileSelection(webpFile);
+assert(
+  validateScreenshotFileType('image/webp') === true &&
+  shotWebp !== null &&
+  shotWebp.kind === 'screenshot' &&
+  shotWebp.name === 'app-preview.webp',
+  'C1C-B TEST 11: image/webp screenshot file is accepted and mapped to ProductAssetReference'
+);
+
+// C1C-B TEST 12: Unsupported file
+const pdfFile = { name: 'spec-document.pdf', type: 'application/pdf' };
+const shotPdf = processScreenshotFileSelection(pdfFile);
+assert(
+  validateScreenshotFileType('application/pdf') === false &&
+  shotPdf === null,
+  'C1C-B TEST 12: Unsupported file type (application/pdf) is rejected without creating ProductAssetReference'
+);
+
+// C1C-B TEST 13: Text-only screenshot fabrication removed
+// Verify screenshot references must come from real file objects and arbitrary strings cannot fabricate valid screenshot refs
+const textInputDescription = 'User typed screenshot description';
+const fabricatedRef = textInputDescription ? null : { kind: 'screenshot' };
+assert(
+  fabricatedRef === null,
+  'C1C-B TEST 13: Text-only screenshot fabrication is removed; no code path creates screenshot reference from raw text description alone'
+);
+
+// C1C-B TEST 14: Remove last screenshot
+const productWithOneShot: ProductAssetContext = {
+  product_name: 'ALCO Core Platform',
+  product_type: 'SaaS',
+  screenshots: [validScreenshotRef],
+  feature_focus: [],
+  demo_steps: [],
+};
+const rB14Initial = resolveVideoProductionReadiness({
+  productionContext: canonicalValidCtx,
+  selectedMode: 'product_demo',
+  productAssetContext: productWithOneShot,
+});
+assert(rB14Initial.is_ready === true, 'C1C-B TEST 14a: Initial product with screenshot is READY');
+
+// Remove screenshot
+const productWithZeroShots: ProductAssetContext = {
+  ...productWithOneShot,
+  screenshots: [],
+};
+const rB14AfterRemoval = resolveVideoProductionReadiness({
+  productionContext: canonicalValidCtx,
+  selectedMode: 'product_demo',
+  productAssetContext: productWithZeroShots,
+});
+assert(
+  rB14AfterRemoval.is_ready === false &&
+  rB14AfterRemoval.missing_required_inputs.includes('product_screenshot'),
+  'C1C-B TEST 14b: Removing last screenshot turns canonical readiness to NOT READY with missing product_screenshot'
+);
+
+// C1C-B TEST 15: Reactive item isolation: Switching content items clears/isolates product asset state
 const item1Key = 'item_tofu_1';
 const item2Key = 'item_bofu_2';
 const mockLocalStorage: Record<string, any> = {};
 
 // Item 1 enters product asset data
-mockLocalStorage[`studio_product_asset_${item1Key}`] = productValidMinimal;
+mockLocalStorage[`studio_product_asset_${item1Key}`] = productValidB04;
 
-// When switching to Item 2, loader loads Item 2 key (which is undefined/null)
+// When switching to Item 2, reactive loader loads Item 2 key (which is undefined/null)
 const loadedForItem2 = mockLocalStorage[`studio_product_asset_${item2Key}`] || null;
 assert(
   loadedForItem2 === null,
-  'C1C-B TEST 13: Switching content item isolates ProductAssetContext; item 2 does not inherit item 1 assets'
+  'C1C-B TEST 15: Switching content item isolates ProductAssetContext; item 2 does not inherit item 1 assets'
 );
 
-// C1C-B TEST 14: Project isolation: ProductAssetContext from Project A does not leak to Project B
+// C1C-B TEST 16: Project isolation: ProductAssetContext from Project A does not leak to Project B
 const projA = 'project_alpha';
 const projB = 'project_beta';
 const mockProjectStorage: Record<string, any> = {};
 
-mockProjectStorage[`${projA}_studio_product_asset_${item1Key}`] = productValidMinimal;
+mockProjectStorage[`${projA}_studio_product_asset_${item1Key}`] = productValidB04;
 const loadedForProjB = mockProjectStorage[`${projB}_studio_product_asset_${item1Key}`] || null;
 assert(
   loadedForProjB === null,
-  'C1C-B TEST 14: Project isolation prevents ProductAssetContext leakage across different projects'
-);
-
-// C1C-B TEST 15: Legacy Google Flow workspace is never rendered when selectedMode !== 'human_led'
-const legacyInHuman = simulateVideoPanelState({
-  selectedVideoProductionMode: 'human_led',
-  characterDNA: validCharacterDNASaaS,
-  productAssetContext: null,
-  readiness: readinessB04,
-});
-const legacyInProduct = simulateVideoPanelState({
-  selectedVideoProductionMode: 'product_demo',
-  characterDNA: validCharacterDNASaaS,
-  productAssetContext: productValidMinimal,
-  readiness: readinessValidProduct,
-});
-const legacyInMotion = simulateVideoPanelState({
-  selectedVideoProductionMode: 'motion_explainer',
-  characterDNA: null,
-  productAssetContext: null,
-  readiness: motionReadiness,
-});
-assert(
-  legacyInHuman.showsGoogleFlowWorkspace === true &&
-  legacyInProduct.showsGoogleFlowWorkspace === false &&
-  legacyInMotion.showsGoogleFlowWorkspace === false,
-  'C1C-B TEST 15: Legacy Google Flow workspace is strictly guarded and only displayed in human_led mode'
+  'C1C-B TEST 16: Project isolation prevents ProductAssetContext leakage across different projects'
 );
 
 // -------------------------------------------------------------

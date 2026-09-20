@@ -291,7 +291,7 @@ export default function VideoPanel(props: any) {
               {videoProductionReadiness.missing_required_inputs.length > 0 && (
                 <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
                   <span className="font-bold text-amber-900">Input wajib belum terisi:</span>
-                  {videoProductionReadiness.missing_required_inputs.map((inp) => (
+                  {videoProductionReadiness.missing_required_inputs.map((inp: string) => (
                     <span
                       key={inp}
                       className="px-2 py-0.5 rounded bg-amber-100/80 border border-amber-300 text-amber-900 font-semibold uppercase text-[10px]"
@@ -303,7 +303,7 @@ export default function VideoPanel(props: any) {
               )}
               {videoProductionReadiness.warnings.length > 0 && (
                 <div className="space-y-1">
-                  {videoProductionReadiness.warnings.map((warn, i) => (
+                  {videoProductionReadiness.warnings.map((warn: string, i: number) => (
                     <p key={i} className="text-xs text-amber-800 flex items-start gap-1.5">
                       <span className="text-amber-600 font-bold shrink-0">&bull;</span>
                       <span>{warn}</span>

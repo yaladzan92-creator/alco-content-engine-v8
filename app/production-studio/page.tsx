@@ -3334,20 +3334,24 @@ export default function ProductionStudioPage() {
   // Product Asset Context & Video Production Readiness (Phase 3D-C1C-A & 3D-C1C-B)
   const [productAssetContext, setProductAssetContext] = useState<ProductAssetContext | null>(null);
 
-  // Reactive loading for ProductAssetContext strictly scoped to (canonicalProjectId, sourceItem)
+  // Reactive loading for ProductAssetContext strictly scoped to (canonicalProjectId, sourceItem?.content_item_id)
   useEffect(() => {
-    if (!canonicalProjectId || !sourceItem) {
+    if (!canonicalProjectId || !sourceItem?.content_item_id) {
       setProductAssetContext(null);
       return;
     }
     const itemKey = getItemKey(sourceItem);
-    const storedProductAsset = loadProjectData(canonicalProjectId, `studio_product_asset_${itemKey}`);
-    if (storedProductAsset && typeof storedProductAsset === 'object') {
-      setProductAssetContext(storedProductAsset as ProductAssetContext);
+    const stored = loadProjectData(
+      canonicalProjectId,
+      `studio_product_asset_${itemKey}`
+    );
+    if (stored && typeof stored === 'object') {
+      setProductAssetContext(stored as ProductAssetContext);
     } else {
       setProductAssetContext(null);
     }
-  }, [canonicalProjectId, sourceItem]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canonicalProjectId, sourceItem?.content_item_id]);
 
   const videoProductionReadiness = useMemo<VideoProductionReadiness | null>(() => {
     if (!productionEngineContext) return null;
@@ -3783,16 +3787,6 @@ export default function ProductionStudioPage() {
         } else {
           setRevisionNotes('');
         }
-
-        // Scope productAssetContext strictly to current item
-        const storedProductAsset = loadProjectData(resolvedCanonicalId, `studio_product_asset_${itemKey}`);
-        if (storedProductAsset && typeof storedProductAsset === 'object') {
-          setProductAssetContext(storedProductAsset as ProductAssetContext);
-        } else {
-          setProductAssetContext(null);
-        }
-      } else {
-        setProductAssetContext(null);
       }
     } catch (e) {
       console.error('Failed to parse storage data in Production Studio', e);
