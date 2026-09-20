@@ -7,6 +7,16 @@ import {
   VideoSceneProductionPlan,
   VideoProductionMode,
 } from './production-contract';
+
+export type {
+  ImageProductionDetails,
+  CarouselProductionDetails,
+  CarouselSlideProductionPlan,
+  CarouselFinalPrompts,
+  VideoProductionDetails,
+  VideoSceneProductionPlan,
+  VideoProductionMode,
+};
 import { FunnelStage } from './content-contract';
 
 // ============================================================================

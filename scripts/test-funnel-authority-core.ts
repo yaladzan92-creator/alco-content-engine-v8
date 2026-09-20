@@ -6478,7 +6478,7 @@ assert(
 // C1C-C TEST 9: Human Led mode instructions use authoritative talking_head scenes & CharacterDNA without generic fallback
 const mockDna: CharacterDNA = {
   character_id: 'char_budi_01',
-  project_id: 'proj_test_01',
+  project_id: canonicalValidCtx.project_id,
   reference_images: [],
   identity: {
     display_name: 'Budi Santoso',
@@ -6609,22 +6609,27 @@ assert(
 );
 
 // C1C-C TEST 15: Readiness gating contracts: is_ready === true vs is_ready === false
-const ctxWithoutCharDNA: ProductionEngineContext = {
+const ctxWithMockDna: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  character_dna: mockDna,
+};
+const readyHuman = resolveVideoProductionReadiness({
+  productionContext: ctxWithMockDna,
+  selectedMode: 'human_led',
+});
+
+const ctxWithoutMockDna: ProductionEngineContext = {
   ...canonicalValidCtx,
   character_dna: undefined,
 };
-const readyHuman = resolveVideoProductionReadiness({
-  productionContext: canonicalValidCtx,
-  selectedMode: 'human_led',
-  characterDNA: mockDna,
-});
 const blockedHuman = resolveVideoProductionReadiness({
-  productionContext: ctxWithoutCharDNA,
+  productionContext: ctxWithoutMockDna,
   selectedMode: 'human_led',
-  characterDNA: null,
 });
 assert(
-  readyHuman.is_ready === true && blockedHuman.is_ready === false,
+  readyHuman.is_ready === true &&
+  blockedHuman.is_ready === false &&
+  blockedHuman.missing_required_inputs.includes('character'),
   'C1C-C TEST 15: Readiness contract correctly gates human_led mode (ready with DNA, blocked without DNA)'
 );
 
@@ -6727,6 +6732,72 @@ for (const mode of modes) {
 assert(
   allModesResolved,
   'C1C-C TEST 20: Full end-to-end integration resolves all 3 modes deterministically with complete 2-step prompts'
+);
+
+// -------------------------------------------------------------
+// C1C-C STATIC REGRESSION GUARDS FOR VideoPanel.tsx
+// -------------------------------------------------------------
+const videoPanelSrc = fs.readFileSync(
+  path.join(projectRoot, 'components/production-studio/VideoPanel.tsx'),
+  'utf8'
+);
+
+// TEST A: VideoPanel must NOT contain buildCanonicalVideoScenePlan(
+assert(
+  !videoPanelSrc.includes('buildCanonicalVideoScenePlan('),
+  'C1C-C STATIC GUARD A: VideoPanel must NOT contain buildCanonicalVideoScenePlan('
+);
+
+// TEST B: VideoPanel must NOT contain buildVideoProductionCandidate(
+assert(
+  !videoPanelSrc.includes('buildVideoProductionCandidate('),
+  'C1C-C STATIC GUARD B: VideoPanel must NOT contain buildVideoProductionCandidate('
+);
+
+// TEST C: VideoPanel must NOT contain getVideoCandidateId(
+assert(
+  !videoPanelSrc.includes('getVideoCandidateId('),
+  'C1C-C STATIC GUARD C: VideoPanel must NOT contain getVideoCandidateId('
+);
+
+// TEST D: VideoPanel must NOT contain selectedVideoProductionMode = 'human_led'
+assert(
+  !videoPanelSrc.includes("selectedVideoProductionMode = 'human_led'"),
+  'C1C-C STATIC GUARD D: VideoPanel must NOT contain selectedVideoProductionMode = \'human_led\''
+);
+
+// TEST E: VideoPanel must NOT contain patterns equivalent to selectedVideoProductionMode || 'human_led' or selectedVideoProductionMode ?? 'human_led'
+assert(
+  !videoPanelSrc.includes("selectedVideoProductionMode || 'human_led'") &&
+  !videoPanelSrc.includes('selectedVideoProductionMode || "human_led"') &&
+  !videoPanelSrc.includes("selectedVideoProductionMode ?? 'human_led'") &&
+  !videoPanelSrc.includes('selectedVideoProductionMode ?? "human_led"'),
+  'C1C-C STATIC GUARD E: VideoPanel must NOT contain fallback patterns for selectedVideoProductionMode'
+);
+
+// FAIL-CLOSED TRANSLATOR TEST: buildCanonicalSceneProductionInstructions returns isValid: false and instructions: undefined
+const invalidHumanResult = buildCanonicalSceneProductionInstructions({
+  scene: tofuHumanScenes[0],
+  productionMode: 'human_led',
+  characterDNA: null,
+});
+assert(
+  invalidHumanResult.isValid === false && invalidHumanResult.instructions === undefined,
+  'C1C-C TRANSLATOR GUARD: Missing CharacterDNA in human_led returns isValid === false and instructions === undefined'
+);
+
+// Static check on WorkspaceCanonicalSceneView ensuring invalid results do not yield prompt buttons
+assert(
+  videoPanelSrc.includes('if (!instructionResult.isValid || !instructionResult.instructions)') &&
+  videoPanelSrc.includes('Instruksi produksi scene tidak tersedia.'),
+  'C1C-C SCENE UI GUARD: WorkspaceCanonicalSceneView fails closed with error UI on invalid instruction result'
+);
+
+// Static check on VideoPanel mode selection ensuring missing or invalid mode fails closed
+assert(
+  videoPanelSrc.includes('if (!isValidSelectedMode || !selectedVideoProductionMode)') &&
+  videoPanelSrc.includes('Mode produksi video belum dipilih.'),
+  'C1C-C MODE UI GUARD: VideoPanel fails closed when selected mode is missing or invalid'
 );
 
 // -------------------------------------------------------------

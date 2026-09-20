@@ -46,22 +46,22 @@ import { CharacterDNA } from '@/lib/content-contract';
 interface VideoPanelProps {
   activeItem?: any;
   activeContext?: any;
-  handleCopyText?: (key: string, text: string, feedbackType?: string) => void;
+  handleCopyText?: (key: string, text: string, feedbackType?: any) => void;
   copiedStates?: Record<string, boolean>;
   nextStepVisibleKeys?: Record<string, boolean>;
   handleDismissNextStep?: (key: string) => void;
-  getInitialDraft?: (tab: string, item: any, context: any) => string;
+  getInitialDraft?: (tab: any, item?: any, context?: any) => string;
   videoOutput?: string;
   tryParseJSON?: (jsonStr: string) => any;
   selectedVideoProductionMode?: VideoProductionMode;
   handleSelectVideoProductionMode?: (mode: VideoProductionMode) => void;
-  recommendedVideoProductionMode?: VideoProductionMode;
+  recommendedVideoProductionMode?: VideoProductionMode | null;
   videoIntentDecision?: any;
   handleUseRecommendation?: () => void;
   characterDNA?: CharacterDNA | null;
   savedCharacters?: any[];
   selectedCharacterId?: string | null;
-  handleSelectCharacter?: (id: string) => void;
+  handleSelectCharacter?: (id: string | null) => void;
   handleCreateCharacterClick?: () => void;
   productAssetContext?: ProductAssetContext | null;
   setProductAssetContext?: (ctx: ProductAssetContext) => void;
@@ -79,7 +79,7 @@ export default function VideoPanel(props: VideoPanelProps) {
     getInitialDraft,
     videoOutput,
     tryParseJSON = JSON.parse,
-    selectedVideoProductionMode = 'human_led',
+    selectedVideoProductionMode,
     handleSelectVideoProductionMode,
     recommendedVideoProductionMode,
     videoIntentDecision,
@@ -122,6 +122,20 @@ export default function VideoPanel(props: VideoPanelProps) {
     return (
       <div className="whitespace-pre-wrap font-sans text-stone-800 text-xs leading-relaxed">
         {effectiveVideoOutput}
+      </div>
+    );
+  }
+
+  // Strictly fail closed if selectedVideoProductionMode is missing or not a valid canonical mode
+  const validModes: VideoProductionMode[] = ['human_led', 'product_demo', 'motion_explainer'];
+  const isValidSelectedMode = Boolean(
+    selectedVideoProductionMode && validModes.includes(selectedVideoProductionMode)
+  );
+
+  if (!isValidSelectedMode || !selectedVideoProductionMode) {
+    return (
+      <div className="p-8 text-center bg-[#fffdf8] border border-amber-200 rounded-2xl text-amber-900 text-sm font-medium font-sans">
+        Mode produksi video belum dipilih.
       </div>
     );
   }
@@ -381,7 +395,7 @@ export default function VideoPanel(props: VideoPanelProps) {
             <CharacterSelector
               savedCharacters={savedCharacters || []}
               selectedCharacterId={selectedCharacterId || null}
-              onSelectCharacter={handleSelectCharacter}
+              onSelectCharacter={handleSelectCharacter || (() => {})}
               onCreateCharacter={handleCreateCharacterClick}
             />
             {handleCreateCharacterClick && (
@@ -651,7 +665,7 @@ function WorkspaceCanonicalSceneView({
 }) {
   const canonicalScenes = activeCandidate.production_details.scenes;
   const activeScene: VideoSceneProductionPlan =
-    canonicalScenes.find((s) => s.scene_number === activeSceneNumber) || canonicalScenes[0];
+    canonicalScenes.find((s: VideoSceneProductionPlan) => s.scene_number === activeSceneNumber) || canonicalScenes[0];
 
   const instructionResult = buildCanonicalSceneProductionInstructions({
     scene: activeScene,
@@ -660,12 +674,25 @@ function WorkspaceCanonicalSceneView({
     productAssetContext,
   });
 
-  const instructions = instructionResult.instructions || {
-    imagePrompt: instructionResult.error || '—',
-    motionPrompt: instructionResult.error || '—',
-    voiceover: activeScene.voiceover || '—',
-    onScreenText: activeScene.on_screen_text || '—',
-  };
+  if (!instructionResult.isValid || !instructionResult.instructions) {
+    return (
+      <div className="bg-[#fffdf8] border border-amber-200 rounded-2xl p-6 text-center space-y-2 shadow-xs">
+        <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto border border-amber-300">
+          <AlertTriangle size={20} />
+        </div>
+        <h4 className="text-xs font-bold text-stone-900">
+          Instruksi produksi scene tidak tersedia.
+        </h4>
+        {instructionResult.error && (
+          <p className="text-xs text-stone-600 max-w-lg mx-auto leading-relaxed">
+            {instructionResult.error}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  const instructions = instructionResult.instructions;
 
   const imgCopyKey = `canonical_img_${activeScene.scene_number}_${activeStyleKey}`;
   const promptCopyKey = `canonical_prompt_${activeScene.scene_number}_${activeStyleKey}`;
@@ -682,7 +709,7 @@ function WorkspaceCanonicalSceneView({
       {/* Scene Navigation Bar: Exactly 3 Scenes */}
       <div className="bg-[#f6f3ee] border border-[#e7e0d4] p-2 rounded-2xl flex flex-wrap items-center justify-between gap-2 shadow-xs">
         <div className="flex items-center gap-1.5 flex-wrap">
-          {canonicalScenes.map((scene) => {
+          {canonicalScenes.map((scene: VideoSceneProductionPlan) => {
             const isActive = activeScene.scene_number === scene.scene_number;
             return (
               <button
@@ -740,7 +767,7 @@ function WorkspaceCanonicalSceneView({
             <h4 className="text-sm font-bold text-[#1f2933]">{activeScene.purpose || '—'}</h4>
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
-            {activeScene.required_assets.map((asset) => (
+            {activeScene.required_assets.map((asset: string) => (
               <span
                 key={asset}
                 className="text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-lg border border-primary/20"
