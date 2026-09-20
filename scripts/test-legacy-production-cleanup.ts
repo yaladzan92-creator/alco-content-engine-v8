@@ -55,9 +55,11 @@ console.log('✅ handleProceedToProduction removed from page.tsx and ReviewPanel
 assert(!reviewContent.includes('3 scene Google Flow'), 'ReviewPanel must not contain "3 scene Google Flow" wording');
 console.log('✅ ReviewPanel legacy Google Flow wording removed');
 
-// 7. UGCPanel import
+// 7. UGCPanel import & filesystem check
 assert(!pageContent.includes('UGCPanel'), 'UGCPanel import must be removed from page.tsx');
-console.log('✅ UGCPanel import removed from page.tsx');
+const ugcPanelPath = path.join(process.cwd(), 'components', 'production-studio', 'UGCPanel.tsx');
+assert(!fs.existsSync(ugcPanelPath), 'Legacy components/production-studio/UGCPanel.tsx must be deleted from the filesystem');
+console.log('✅ UGCPanel import removed and UGCPanel.tsx deleted from filesystem');
 
 // 8. Canonical Preservation Check
 console.log('Checking preservation of canonical production architecture...');
