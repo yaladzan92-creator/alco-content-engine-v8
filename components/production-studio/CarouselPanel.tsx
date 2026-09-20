@@ -3,11 +3,20 @@ import React from 'react';
 import { 
   Sparkles, Copy, Check, Sliders, CheckCircle2, AlertCircle,
   Layers, ArrowRight, Palette, Compass, Camera, BarChart3,
-  Layers2, Eye, ShieldCheck, ChevronDown, FileText, UserCheck
+  Layers2, Eye, ShieldCheck, ChevronDown, FileText, UserCheck,
+  Package, AlertTriangle, RotateCcw, CheckSquare
 } from 'lucide-react';
 import { PromptNextStepLinks } from './PromptNextStepLinks';
 import CharacterSelector from './CharacterSelector';
 import { injectCharacterToPrompt } from '@/lib/character-prompt';
+import {
+  CarouselSlideCompletionState,
+  getCompletedCarouselSlideCount,
+  areAllCarouselSlidesCreated,
+  isCarouselSlideAssetCreated,
+  getCarouselSlideCompletionEntry,
+} from '@/lib/carousel-slide-completion';
+import { CarouselProductionGateResult } from '@/lib/carousel-production-gate';
 
 export default function CarouselPanel(props: any) {
   const {
@@ -27,6 +36,13 @@ export default function CarouselPanel(props: any) {
     handleSelectCharacter,
     handleCreateCharacterClick,
     characterDNA,
+    carouselSlideCompletionState,
+    handleToggleCarouselSlideCompletion,
+    carouselProductionGate,
+    handlePrepareCarouselProductionPackage,
+    carouselProductionPackagePreparing,
+    carouselProductionPackageError,
+    carouselProductionPackagePrepared,
   } = props;
 
   let plan: any | null = activeItem?.carousel_plan || null;
@@ -161,6 +177,11 @@ ${s.production_prompt || '-'}`;
     visualFormat
   );
 
+  const completedSlidesCount = getCompletedCarouselSlideCount(carouselSlideCompletionState);
+  const allSlidesCreated = areAllCarouselSlidesCreated(carouselSlideCompletionState);
+  const isCurrentSlideCompleted = isCarouselSlideAssetCreated(carouselSlideCompletionState, activeSlide?.slide);
+  const currentSlideCompletionEntry = getCarouselSlideCompletionEntry(carouselSlideCompletionState, activeSlide?.slide);
+
   return (
     <div className="space-y-4">
       {/* 1. CAROUSEL OVERVIEW (Compact Context Strip) */}
@@ -221,27 +242,46 @@ ${s.production_prompt || '-'}`;
       {/* 2. SLIDE NAVIGATION (Compact, focused buttons: [1] [2] [3]... ) */}
       <div className="bg-[#fffdf8] border border-[#e7e0d4] p-3 rounded-2xl shadow-xs">
         <div className="flex items-center justify-between pb-2 border-b border-[#e7e0d4] mb-2 px-1">
-          <span className="text-[11px] font-bold text-stone-700 uppercase tracking-wider">Slide Navigator</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold text-stone-700 uppercase tracking-wider">Slide Navigator</span>
+            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+              allSlidesCreated
+                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                : completedSlidesCount > 0
+                ? 'bg-amber-100 text-amber-800 border-amber-300'
+                : 'bg-stone-100 text-stone-600 border-stone-200'
+            }`}>
+              {completedSlidesCount}/{slides.length} Selesai Dibuat
+            </span>
+          </div>
           <span className="text-[11px] text-stone-500">Pilih slide untuk fokus naskah &amp; produksi:</span>
         </div>
         <div className="grid grid-cols-4 sm:grid-cols-7 lg:grid-cols-7 gap-2">
           {slides.map((s: any) => {
             const isCurrent = s.slide === activeSlideNum;
+            const isCompleted = isCarouselSlideAssetCreated(carouselSlideCompletionState, s.slide);
             return (
               <button
                 key={s.slide}
                 onClick={() => setActiveSlideNumber(s.slide)}
-                className={`p-2.5 rounded-xl text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
+                className={`p-2.5 rounded-xl text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 relative ${
                   isCurrent
                     ? 'bg-primary text-white shadow-xs'
+                    : isCompleted
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200'
                     : 'bg-[#f6f3ee] hover:bg-[#e7e0d4] text-stone-700 border border-[#e7e0d4]'
                 }`}
               >
-                <span className={`text-xs font-mono font-bold ${isCurrent ? 'text-white' : 'text-stone-900'}`}>
-                  Slide {s.slide}
-                </span>
+                <div className="flex items-center gap-1">
+                  <span className={`text-xs font-mono font-bold ${isCurrent ? 'text-white' : isCompleted ? 'text-emerald-900' : 'text-stone-900'}`}>
+                    Slide {s.slide}
+                  </span>
+                  {isCompleted && (
+                    <Check size={11} className={isCurrent ? 'text-white' : 'text-emerald-600'} />
+                  )}
+                </div>
                 <span className={`text-[10px] capitalize leading-tight truncate w-full text-center ${
-                  isCurrent ? 'text-white/85 font-medium' : 'text-stone-500'
+                  isCurrent ? 'text-white/85 font-medium' : isCompleted ? 'text-emerald-700 font-medium' : 'text-stone-500'
                 }`}>
                   {s.role || 'Content'}
                 </span>
@@ -474,6 +514,58 @@ ${s.production_prompt || '-'}`;
                 )}
               </div>
             </details>
+
+            {/* MANUAL SLIDE ASSET COMPLETION ACTION */}
+            <div className="pt-2">
+              {!isCurrentSlideCompleted ? (
+                <div className="p-4 bg-[#f6f3ee] border border-[#e7e0d4] rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-stone-900 flex items-center gap-1.5">
+                      <Layers size={14} className="text-primary" />
+                      <span>Konfirmasi Produksi Aset Slide {activeSlide.slide}</span>
+                    </div>
+                    <p className="text-[11px] text-stone-600 leading-relaxed max-w-xl">
+                      Gunakan tombol ini setelah aset gambar atau visual Slide {activeSlide.slide} selesai dibuat di Midjourney, Canva, atau tool desain Anda.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleToggleCarouselSlideCompletion?.(activeSlide.slide, true)
+                    }
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition shadow-xs flex items-center gap-2 cursor-pointer shrink-0"
+                  >
+                    <Check size={14} />
+                    <span>Tandai Slide Selesai Dibuat</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                      <CheckSquare size={14} className="text-emerald-700" />
+                      <span>Aset Slide Selesai Dibuat ✓</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-700 leading-relaxed max-w-xl">
+                      Slide {activeSlide.slide} telah dikonfirmasi selesai dibuat
+                      {currentSlideCompletionEntry?.marked_at
+                        ? ` (${new Date(currentSlideCompletionEntry.marked_at).toLocaleTimeString()})`
+                        : ''}.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleToggleCarouselSlideCompletion?.(activeSlide.slide, false)
+                    }
+                    className="px-3.5 py-1.5 bg-white hover:bg-stone-50 border border-emerald-300 text-stone-700 font-semibold text-xs rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <RotateCcw size={12} className="text-stone-500" />
+                    <span>Batalkan Tanda</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -552,6 +644,100 @@ ${s.production_prompt || '-'}`;
           </div>
         </div>
       </details>
+
+      {/* CAROUSEL PRODUCTION GATE AREA (Phase 3D-D) */}
+      <div
+        className={`p-4.5 rounded-2xl border transition-all ${
+          carouselProductionGate?.is_allowed
+            ? 'bg-emerald-50/60 border-emerald-200 shadow-xs'
+            : 'bg-[#f6f3ee] border-[#e7e0d4]'
+        }`}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
+          <div className="space-y-1.5 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Package
+                size={16}
+                className={carouselProductionGate?.is_allowed ? 'text-emerald-700' : 'text-stone-600'}
+              />
+              <span className="text-xs font-bold text-stone-900">
+                Gerbang Produksi Carousel (Carousel Production Gate)
+              </span>
+              {carouselProductionPackagePrepared && (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-300 text-[10px] font-bold text-emerald-800 flex items-center gap-1">
+                  <Check size={11} className="text-emerald-700" />
+                  <span>Paket Produksi Siap ✓</span>
+                </span>
+              )}
+            </div>
+
+            {carouselProductionGate?.is_allowed ? (
+              <div className="space-y-0.5">
+                <p className="text-xs font-semibold text-emerald-800 flex items-center gap-1.5">
+                  <Check size={13} className="text-emerald-600 shrink-0" />
+                  <span>{completedSlidesCount}/{slides.length} Slide Selesai Dibuat ✓ &mdash; Semua syarat produksi carousel terpenuhi.</span>
+                </p>
+                <p className="text-[11px] text-stone-600">
+                  Klik tombol di samping untuk menyiapkan dan menyimpan paket produksi carousel kanonikal.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-stone-700">
+                  Belum Siap Menyiapkan Paket Produksi ({completedSlidesCount}/{slides.length} Slide)
+                </p>
+                {carouselProductionGate?.blockers && carouselProductionGate.blockers.length > 0 && (
+                  <div className="space-y-0.5">
+                    {carouselProductionGate.blockers.slice(0, 2).map((blocker: string, idx: number) => (
+                      <p key={idx} className="text-[11px] text-amber-800 flex items-start gap-1 leading-tight">
+                        <AlertTriangle size={12} className="shrink-0 text-amber-600 mt-0.5" />
+                        <span>{blocker}</span>
+                      </p>
+                    ))}
+                    {carouselProductionGate.blockers.length > 2 && (
+                      <p className="text-[10px] text-stone-500 italic pl-4">
+                        +{carouselProductionGate.blockers.length - 2} syarat lainnya belum terpenuhi.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {carouselProductionPackageError && (
+              <p className="text-xs text-rose-600 font-semibold flex items-center gap-1">
+                <AlertTriangle size={12} className="shrink-0 text-rose-600" />
+                <span>{carouselProductionPackageError}</span>
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={!carouselProductionGate?.is_allowed || carouselProductionPackagePreparing}
+              onClick={handlePrepareCarouselProductionPackage}
+              className={`px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-xs flex items-center gap-2 ${
+                carouselProductionGate?.is_allowed && !carouselProductionPackagePreparing
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
+                  : 'bg-stone-200 text-stone-400 cursor-not-allowed border border-stone-300'
+              }`}
+            >
+              {carouselProductionPackagePreparing ? (
+                <>
+                  <div className="w-3.5 h-3.5 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+                  <span>Menyiapkan Paket...</span>
+                </>
+              ) : (
+                <>
+                  <Package size={14} />
+                  <span>Siapkan Paket Produksi Carousel</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

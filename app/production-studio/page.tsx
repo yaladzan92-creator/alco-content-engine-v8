@@ -92,6 +92,22 @@ import {
   buildVideoProductionInputSignature,
 } from '@/lib/video-scene-completion';
 import { resolveSelectedVideoProductionCandidate } from '@/lib/video-canonical-scene-resolver';
+import {
+  buildEffectiveCarouselProductionCandidate,
+  buildCarouselProductionPlanSignature,
+} from '@/lib/carousel-production-path';
+import {
+  CarouselSlideCompletionState,
+  CarouselSlideCompletionExpected,
+  getCarouselSlideCompletionStorageKey,
+  createEmptyCarouselSlideCompletionState,
+  validateCarouselSlideCompletionState,
+  setCarouselSlideAssetCreated,
+} from '@/lib/carousel-slide-completion';
+import {
+  CarouselProductionGateResult,
+  evaluateCarouselProductionGate,
+} from '@/lib/carousel-production-gate';
 
 
 
@@ -4656,6 +4672,23 @@ ${formatDirection}${revisionDirective}`;
     return null;
   }, [carouselOutput, carouselOutputSource, activeItem, activeContext]);
 
+  // Phase 3D-D: Canonical Carousel Production Candidate & Signature
+  const baseCarouselCandidate = carouselPlan?.productionCandidate || null;
+
+  const effectiveCarouselCandidate = useMemo<CarouselProductionCandidate | null>(() => {
+    if (!baseCarouselCandidate || !carouselPlan?.slides) return null;
+    return buildEffectiveCarouselProductionCandidate(
+      baseCarouselCandidate,
+      carouselPlan.slides,
+      characterDNA
+    );
+  }, [baseCarouselCandidate, carouselPlan?.slides, characterDNA]);
+
+  const currentCarouselProductionPlanSignature = useMemo<string>(() => {
+    if (!effectiveCarouselCandidate) return '';
+    return buildCarouselProductionPlanSignature(effectiveCarouselCandidate);
+  }, [effectiveCarouselCandidate]);
+
   const normalizedCarouselOutput = useMemo(() => {
     const attachCandidate = isAuthoritativeProductionOutputSource(carouselOutputSource);
     const textToParse = carouselOutput || getInitialDraft('carousel', activeItem, activeContext);
@@ -4969,6 +5002,264 @@ ${formatDirection}${revisionDirective}`;
     showToast('Paket produksi video berhasil disiapkan.');
   };
 
+  // Phase 3D-D: Carousel Slide Completion State (Persistent, Isolated by Project + Item + Candidate + Plan Signature)
+  const [carouselSlideCompletionState, setCarouselSlideCompletionState] =
+    useState<CarouselSlideCompletionState | null>(null);
+
+  useEffect(() => {
+    if (
+      !canonicalProjectId ||
+      !sourceItem?.content_item_id ||
+      !effectiveCarouselCandidate ||
+      !currentCarouselProductionPlanSignature
+    ) {
+      setCarouselSlideCompletionState(null);
+      return;
+    }
+
+    const contentItemId = sourceItem.content_item_id;
+    const candidateId = effectiveCarouselCandidate.candidate_id;
+    const slideCount = effectiveCarouselCandidate.production_details.slide_count;
+    const storageKey = getCarouselSlideCompletionStorageKey(contentItemId, candidateId);
+
+    const stored = loadProjectData(canonicalProjectId, storageKey);
+    const expected: CarouselSlideCompletionExpected = {
+      project_id: canonicalProjectId,
+      content_item_id: contentItemId,
+      candidate_id: candidateId,
+      production_plan_signature: currentCarouselProductionPlanSignature,
+      slide_count: slideCount,
+    };
+
+    const validation = validateCarouselSlideCompletionState(stored, expected);
+    if (validation.isValid && stored) {
+      setCarouselSlideCompletionState(stored as CarouselSlideCompletionState);
+    } else {
+      const fresh = createEmptyCarouselSlideCompletionState(
+        canonicalProjectId,
+        contentItemId,
+        candidateId,
+        currentCarouselProductionPlanSignature,
+        slideCount
+      );
+      setCarouselSlideCompletionState(fresh);
+      saveProjectData(canonicalProjectId, storageKey, fresh);
+    }
+  }, [
+    canonicalProjectId,
+    sourceItem?.content_item_id,
+    effectiveCarouselCandidate,
+    currentCarouselProductionPlanSignature,
+  ]);
+
+  const handleToggleCarouselSlideCompletion = (slideNumber: number, isCompleted: boolean) => {
+    if (
+      !canonicalProjectId ||
+      !sourceItem?.content_item_id ||
+      !effectiveCarouselCandidate ||
+      !currentCarouselProductionPlanSignature
+    ) {
+      return;
+    }
+
+    const contentItemId = sourceItem.content_item_id;
+    const candidateId = effectiveCarouselCandidate.candidate_id;
+    const slideCount = effectiveCarouselCandidate.production_details.slide_count;
+    const expected: CarouselSlideCompletionExpected = {
+      project_id: canonicalProjectId,
+      content_item_id: contentItemId,
+      candidate_id: candidateId,
+      production_plan_signature: currentCarouselProductionPlanSignature,
+      slide_count: slideCount,
+    };
+
+    const currentState =
+      carouselSlideCompletionState &&
+      validateCarouselSlideCompletionState(carouselSlideCompletionState, expected).isValid
+        ? carouselSlideCompletionState
+        : createEmptyCarouselSlideCompletionState(
+            canonicalProjectId,
+            contentItemId,
+            candidateId,
+            currentCarouselProductionPlanSignature,
+            slideCount
+          );
+
+    const nextState = setCarouselSlideAssetCreated(currentState, slideNumber, isCompleted);
+    setCarouselSlideCompletionState(nextState);
+    const storageKey = getCarouselSlideCompletionStorageKey(contentItemId, candidateId);
+    saveProjectData(canonicalProjectId, storageKey, nextState);
+
+    if (isCompleted) {
+      showToast(`Slide ${slideNumber} ditandai: Selesai Dibuat ✓`);
+    } else {
+      showToast(`Tanda selesai Slide ${slideNumber} dibatalkan`);
+    }
+  };
+
+  // Phase 3D-D: Carousel Production Gate & Package State
+  const [carouselProductionPackagePreparing, setCarouselProductionPackagePreparing] =
+    useState<boolean>(false);
+  const [carouselProductionPackageError, setCarouselProductionPackageError] = useState<string | null>(
+    null
+  );
+  const [carouselProductionPackagePrepared, setCarouselProductionPackagePrepared] =
+    useState<boolean>(false);
+
+  // Reset prepared state when any production identity affecting current carousel package changes
+  useEffect(() => {
+    setCarouselProductionPackagePrepared(false);
+    setCarouselProductionPackageError(null);
+  }, [
+    canonicalProjectId,
+    sourceItem?.content_item_id,
+    effectiveCarouselCandidate?.candidate_id,
+    currentCarouselProductionPlanSignature,
+    carouselOutputSource,
+  ]);
+
+  // Carousel Production Gate Evaluation
+  const carouselProductionGate = useMemo(() => {
+    return evaluateCarouselProductionGate({
+      production_context: productionEngineContext,
+      source_item: sourceItem,
+      output_source: carouselOutputSource,
+      effective_candidate: effectiveCarouselCandidate,
+      completion_state: carouselSlideCompletionState,
+      current_production_plan_signature: currentCarouselProductionPlanSignature,
+    });
+  }, [
+    productionEngineContext,
+    sourceItem,
+    carouselOutputSource,
+    effectiveCarouselCandidate,
+    carouselSlideCompletionState,
+    currentCarouselProductionPlanSignature,
+  ]);
+
+  // Explicit Carousel Production Package Preparation Handler
+  const handlePrepareCarouselProductionPackage = () => {
+    // 1. Re-evaluate gate directly to guarantee fail-closed security
+    const gateCheck = evaluateCarouselProductionGate({
+      production_context: productionEngineContext,
+      source_item: sourceItem,
+      output_source: carouselOutputSource,
+      effective_candidate: effectiveCarouselCandidate,
+      completion_state: carouselSlideCompletionState,
+      current_production_plan_signature: currentCarouselProductionPlanSignature,
+    });
+
+    if (!gateCheck.is_allowed) {
+      const blockerMsg = gateCheck.blockers[0] || 'Syarat produksi carousel belum terpenuhi.';
+      setCarouselProductionPackageError(blockerMsg);
+      showToast(`Gagal: ${blockerMsg}`);
+      return;
+    }
+
+    // 2. Require canonical inputs
+    if (
+      !canonicalProjectId ||
+      !sourceItem ||
+      !sharedContextSnapshot ||
+      !funnelStrategySnapshot ||
+      !effectiveCarouselCandidate
+    ) {
+      const missingMsg = 'Data proyek atau candidate carousel tidak lengkap.';
+      setCarouselProductionPackageError(missingMsg);
+      showToast(`Gagal: ${missingMsg}`);
+      return;
+    }
+
+    // 3. Verify sourceItem.content_item_id is authoritative
+    if (!sourceItem.content_item_id || !sourceItem.content_item_id.trim()) {
+      const idMsg = 'Identitas sourceItem.content_item_id tidak valid.';
+      setCarouselProductionPackageError(idMsg);
+      showToast(`Gagal: ${idMsg}`);
+      return;
+    }
+
+    // 4. Verify authoritative output source
+    if (!isAuthoritativeProductionOutputSource(carouselOutputSource)) {
+      const srcMsg = 'Sumber output carousel belum otoritatif.';
+      setCarouselProductionPackageError(srcMsg);
+      showToast(`Gagal: ${srcMsg}`);
+      return;
+    }
+
+    // 5. Generate metadata ONLY AFTER gate passes
+    if (typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') {
+      const cryptoErr =
+        'API crypto.randomUUID tidak tersedia untuk pembuatan metadata production package.';
+      setCarouselProductionPackageError(cryptoErr);
+      showToast('Gagal: Crypto API tidak tersedia.');
+      return;
+    }
+
+    const packageMetadata: ProductionPackageMetadata = {
+      package_id: crypto.randomUUID(),
+      created_at: new Date().toISOString(),
+    };
+
+    setCarouselProductionPackagePreparing(true);
+    setCarouselProductionPackageError(null);
+
+    // 6. Prepare production package using exactly effectiveCarouselCandidate
+    const prepResult = prepareProductionPackage({
+      projectId: canonicalProjectId,
+      sharedContext: sharedContextSnapshot,
+      funnelStrategy: funnelStrategySnapshot,
+      contentItem: sourceItem,
+      characterDNA: productionEngineContext?.character_dna || undefined,
+      candidates: [effectiveCarouselCandidate],
+      selectedCandidateId: effectiveCarouselCandidate.candidate_id,
+      metadata: packageMetadata,
+    });
+
+    if (!prepResult.ok) {
+      const prepErr =
+        prepResult.error ||
+        'Gagal menyiapkan production package carousel.';
+      setCarouselProductionPackageError(prepErr);
+      setCarouselProductionPackagePreparing(false);
+      showToast(`Gagal prepare package: ${prepErr}`);
+      return;
+    }
+
+    const productionPackage = prepResult.package;
+
+    // 7. Verify asset_type === 'carousel'
+    if (productionPackage.asset_type !== 'carousel') {
+      const typeErr = `Production package asset_type [${productionPackage.asset_type}] bukan carousel.`;
+      setCarouselProductionPackageError(typeErr);
+      setCarouselProductionPackagePreparing(false);
+      showToast(`Gagal: ${typeErr}`);
+      return;
+    }
+
+    const packageValidation = validateProductionPackage(productionPackage);
+    if (!packageValidation.isValid) {
+      const validErr = packageValidation.error || 'Validasi production package carousel gagal.';
+      setCarouselProductionPackageError(validErr);
+      setCarouselProductionPackagePreparing(false);
+      showToast(`Gagal: ${validErr}`);
+      return;
+    }
+
+    // 8. Save using existing saveProductionPackage storage
+    const saveResult = saveProductionPackage(canonicalProjectId, productionPackage);
+    if (!saveResult.ok) {
+      const saveErr = saveResult.error || 'Gagal menyimpan production package carousel.';
+      setCarouselProductionPackageError(saveErr);
+      setCarouselProductionPackagePreparing(false);
+      showToast(`Gagal save package: ${saveErr}`);
+      return;
+    }
+
+    setCarouselProductionPackagePreparing(false);
+    setCarouselProductionPackagePrepared(true);
+    showToast('Paket produksi carousel berhasil disiapkan.');
+  };
+
   // Render content of active tab dynamically with premium workshop components
   const renderTabContent = () => {
     const funnelRules = getFunnelRules(normalizeFunnelStage(activeItem?.jenis || ""));
@@ -4995,6 +5286,13 @@ ${formatDirection}${revisionDirective}`;
       videoProductionPackagePreparing,
       videoProductionPackageError,
       videoProductionPackagePrepared,
+      carouselSlideCompletionState,
+      handleToggleCarouselSlideCompletion,
+      carouselProductionGate,
+      handlePrepareCarouselProductionPackage,
+      carouselProductionPackagePreparing,
+      carouselProductionPackageError,
+      carouselProductionPackagePrepared,
     };
 
     if (activeTab === 'image') return <ImagePanel {...commonProps} />;
